@@ -8,6 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <style>
   :root{
     --azul:#0a2f5c; --azul2:#123f78; --celeste:#eaf2fb; --rojo:#c0392b;
@@ -99,6 +100,19 @@ const FIREBASE_CONFIG = {
 };
 firebase.initializeApp(FIREBASE_CONFIG);
 const db = firebase.firestore();
+const auth = firebase.auth();
+
+/* Inicio de sesión anónimo automático — así solo quien realmente abrió la
+   app (no cualquier robot que encuentre la URL) puede leer/escribir datos. */
+let authReadyResolve;
+const authReady = new Promise(resolve=>{ authReadyResolve = resolve; });
+auth.onAuthStateChanged(user=>{
+  if(user) authReadyResolve(user);
+});
+auth.signInAnonymously().catch(e=>{
+  console.warn('No se pudo iniciar sesión anónima en Firebase', e);
+  authReadyResolve(null); // deja seguir igual; las llamadas a Firestore fallarán con permiso denegado si las reglas lo exigen
+});
 
 /* ============================================================
    ESTADO
@@ -1300,7 +1314,7 @@ async function boot(skipReload){
     renderAdmin();
   } else renderTransportista();
 }
-boot();
+authReady.then(()=>boot());
 </script>
 </body>
 </html>
