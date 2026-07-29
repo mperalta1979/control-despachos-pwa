@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Control de Despachos</title>
 <link rel="manifest" id="manifestLink">
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -128,6 +127,17 @@ let currentTab = 'nueva';
 let filtros = { transportista:'', cliente:'', mes:'', busqueda:'' };
 let capturedPhotoBase64 = null;
 let ocrSuggestions = { nv: [], guia: [] };
+
+function cargarXLSX(){
+  return new Promise((resolve, reject)=>{
+    if(window.XLSX) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload = ()=>resolve();
+    s.onerror = ()=>reject(new Error('No se pudo descargar la librería de Excel'));
+    document.head.appendChild(s);
+  });
+}
 
 function togglePassword(inputId, spanEl){
   const input = document.getElementById(inputId);
@@ -319,7 +329,7 @@ function renderLogin(){
     </div>
   `;
 }
-function doLogin(){
+async function doLogin(){
   const user = document.getElementById('loginUser').value.trim();
   const pass = document.getElementById('loginPass').value;
   if(!user || !pass) return toast('Ingresa usuario y contraseña');
@@ -328,6 +338,11 @@ function doLogin(){
     session = { rol:'admin', nombre:'Marcelo', username:user };
     localStorage.setItem('cd_session', JSON.stringify(session));
     return boot();
+  }
+
+  if(!datosLoginListos){
+    toast('Un momento, verificando...');
+    await datosLoginPromise;
   }
 
   const u = usuarios.find(x=>x.username===user);
@@ -570,6 +585,17 @@ function tplUsuarios(){
     <h2>Usuarios del sistema (${usuarios.length})</h2>
     <p class="muted">Tú (admin) entras con <b>admin / petroflex1726</b> — esa cuenta no aparece aquí, es fija. Todos los demás usuarios (transportistas y supervisor) los creas, bloqueas o eliminas tú desde esta pantalla.</p>
     <button class="btn-primary btn-sm" onclick="abrirModalUsuario(-1)">+ Crear usuario</button>
+  </div>
+
+  <div class="card">
+    <h2>Carga masiva desde Excel</h2>
+    <p class="muted">Columnas: <b>usuario, clave, rol</b> (transportista/supervisor), y según el rol: <b>rut_empresa, nombre_empresa, nombre_chofer, rut_chofer</b> (transportista) o <b>nombre_mostrar</b> (supervisor). Si el usuario ya existe, se actualiza; si no, se crea. No borra a nadie.</p>
+    <input type="file" id="importUsuariosFile" accept=".xlsx,.xls,.csv">
+    <button class="btn-primary" style="margin-top:8px;" onclick="procesarImportUsuarios()">Importar usuarios</button>
+    <div id="importUsuariosStatus" class="ocr-box" style="display:none;"></div>
+  </div>
+
+  <div class="card">
     ${usuarios.length ? `
     <table style="margin-top:10px;">
       <tr><th>Usuario</th><th>Rol</th><th>RUT Empresa</th><th>Nombre</th><th>Estado</th><th></th></tr>
@@ -639,6 +665,62 @@ function abrirModalUsuario(idx){
   document.getElementById('usuarioModalBg').classList.add('show');
 }
 function cerrarModalUsuario(){ document.getElementById('usuarioModalBg').classList.remove('show'); }
+async function procesarImportUsuarios(){
+  if(session.rol!=='admin') return toast('Solo el administrador puede gestionar usuarios');
+  const file = document.getElementById('importUsuariosFile').files[0];
+  if(!file) return toast('Elige un archivo primero');
+  const box = document.getElementById('importUsuariosStatus');
+  box.style.display = 'block'; box.innerHTML = '⏳ Preparando lector de Excel...';
+  try{ await cargarXLSX(); }catch(e){ box.innerHTML = '⚠️ ' + e.message; return; }
+  box.innerHTML = '⏳ Procesando...';
+  const reader = new FileReader();
+  reader.onload = async (e)=>{
+    try{
+      const wb = XLSX.read(e.target.result, { type:'binary' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval:'' });
+      const norm = (obj, keys)=>{ for(const k of Object.keys(obj)){ if(keys.includes(k.toLowerCase().trim().replace(/\s+/g,'_'))) return String(obj[k]).trim(); } return ''; };
+
+      const nuevos = [];
+      const errores = [];
+      rows.forEach((r,i)=>{
+        const username = norm(r,['usuario','username','login']);
+        const password = norm(r,['clave','password','contraseña','contrasena']);
+        let rol = norm(r,['rol','role']).toLowerCase();
+        if(!username || !password){ errores.push(`Fila ${i+2}: falta usuario o clave`); return; }
+        if(rol!=='transportista' && rol!=='supervisor'){ errores.push(`Fila ${i+2} (${username}): rol debe ser "transportista" o "supervisor"`); return; }
+        if(username===ADMIN_USER.username){ errores.push(`Fila ${i+2}: "admin" está reservado`); return; }
+        nuevos.push({
+          rol, username, password, bloqueado:false,
+          rutEmpresa: norm(r,['rut_empresa','rutempresa']),
+          nombreEmpresa: norm(r,['nombre_empresa','nombreempresa','empresa']),
+          nombreChofer: norm(r,['nombre_chofer','nombrechofer','chofer']),
+          rutChofer: norm(r,['rut_chofer','rutchofer','ced_identidad','cedidentidad','cedula']),
+          nombreDisplay: norm(r,['nombre_mostrar','nombremostrar','nombre']),
+        });
+      });
+
+      if(!nuevos.length){ box.innerHTML = '⚠️ No se encontró ninguna fila válida.' + (errores.length ? '<br>'+errores.join('<br>') : ''); return; }
+
+      box.innerHTML = `⏳ Guardando ${nuevos.length} usuarios...`;
+      const res = await dbBatchSet('usuarios', nuevos.map(u=>({ id:u.username, data:u })));
+      if(res.ok){
+        nuevos.forEach(u=>{
+          const idx = usuarios.findIndex(x=>x.username===u.username);
+          if(idx>=0) usuarios[idx] = u; else usuarios.push(u);
+        });
+        box.innerHTML = `✅ ${nuevos.length} usuarios cargados/actualizados.` + (errores.length ? `<br>⚠️ ${errores.length} filas con problemas:<br>${errores.join('<br>')}` : '');
+      } else {
+        box.innerHTML = '⚠️ No se pudo guardar en la nube: ' + res.motivo;
+      }
+      renderAdmin();
+    }catch(err){
+      box.innerHTML = '⚠️ Error leyendo el archivo: ' + err.message;
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
 async function guardarUsuario(){
   if(session.rol!=='admin') return toast('Solo el administrador puede gestionar usuarios');
   const idx = parseInt(document.getElementById('usuarioIdx').value);
@@ -799,12 +881,14 @@ function guiasAsignadasSinCoincidencia(){
   const nombresLista = transportistasList.map(t=>t.nombre);
   return nombresGuias.filter(n=>!nombresLista.includes(n));
 }
-function procesarImportMaestro(){
+async function procesarImportMaestro(){
   if(session.rol!=='admin') return toast('Solo el administrador puede editar transportistas');
   const file = document.getElementById('importMaestroFile').files[0];
   if(!file) return toast('Elige un archivo primero');
   const box = document.getElementById('maestroImportStatus');
-  box.style.display = 'block'; box.innerHTML = '⏳ Procesando...';
+  box.style.display = 'block'; box.innerHTML = '⏳ Preparando lector de Excel...';
+  try{ await cargarXLSX(); }catch(e){ box.innerHTML = '⚠️ ' + e.message; return; }
+  box.innerHTML = '⏳ Procesando...';
   const reader = new FileReader();
   reader.onload = async (e)=>{
     try{
@@ -1179,9 +1263,11 @@ async function limpiarGuias(){
   renderAdmin();
 }
 
-function procesarImport(){
+async function procesarImport(){
   const file = document.getElementById('importFile').files[0];
   if(!file) return toast('Elige un archivo primero');
+  toast('Preparando lector de Excel...');
+  try{ await cargarXLSX(); }catch(e){ toast('⚠️ ' + e.message); return; }
   const reader = new FileReader();
   reader.onload = async (e)=>{
     const wb = XLSX.read(e.target.result, { type:'binary', cellDates:true });
@@ -1243,7 +1329,9 @@ async function guardarConfigUI(){
   toast(res.ok ? 'Configuración guardada y compartida con todos los dispositivos' : '⚠️ Se guardó solo en este dispositivo: ' + res.motivo);
 }
 
-function exportarExcel(){
+async function exportarExcel(){
+  toast('Preparando lector de Excel...');
+  try{ await cargarXLSX(); }catch(e){ toast('⚠️ ' + e.message); return; }
   const filtradas = entregas.filter(e=>{
     if(filtros.transportista && e.transportista !== filtros.transportista) return false;
     if(filtros.cliente && !(e.cliente||'').toLowerCase().includes(filtros.cliente.toLowerCase())) return false;
@@ -1298,11 +1386,20 @@ async function actualizarDatos(){
   boot(true);
 }
 
+let datosLoginListos = false;
+let datosLoginPromise = null;
+
 async function boot(skipReload){
   if(!session){
-    if(!skipReload){ await dbLoadConfigPublica(); await dbLoadUsuarios(); }
-    return renderLogin();
+    renderLogin(); // se muestra de inmediato, sin esperar red
+    if(!skipReload && !datosLoginPromise){
+      datosLoginPromise = authReady
+        .then(()=> Promise.all([dbLoadConfigPublica(), dbLoadUsuarios()]))
+        .then(()=>{ datosLoginListos = true; });
+    }
+    return;
   }
+  await authReady;
   if(!skipReload){
     await Promise.all([dbLoadEntregas(), dbLoadUsuarios(), dbLoadMaestro()]);
     regenerarListaLogin();
@@ -1314,7 +1411,7 @@ async function boot(skipReload){
     renderAdmin();
   } else renderTransportista();
 }
-authReady.then(()=>boot());
+boot();
 </script>
 </body>
 </html>
