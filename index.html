@@ -853,6 +853,7 @@ function tplDashboard(){
         <button class="btn-secondary btn-sm" onclick="exportarExcel()">⬇️ Exportar Excel (respeta filtros)</button>
       </div>
       <button class="btn-secondary btn-sm" style="margin-top:8px;" onclick="descargarFotos()">🖼️ Descargar fotos a una carpeta (respeta filtros)</button>
+      <button class="btn-secondary btn-sm" style="margin-top:8px;" onclick="cambiarCarpetaDestino()">📁 Elegir/cambiar carpeta de destino</button>
       <div id="descargaFotosStatus" class="ocr-box" style="display:none;"></div>
     </div>
     <div class="card">
@@ -900,6 +901,64 @@ async function fotoABlob(e){
   return await r.blob();
 }
 
+/* Recordar la carpeta de destino elegida (para no tener que navegarla cada vez) */
+function idbOpen(){
+  return new Promise((resolve,reject)=>{
+    const req = indexedDB.open('cd_handles', 1);
+    req.onupgradeneeded = ()=> req.result.createObjectStore('handles');
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+async function idbGet(key){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction('handles','readonly');
+    const req = tx.objectStore('handles').get(key);
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+async function idbSet(key,val){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction('handles','readwrite');
+    tx.objectStore('handles').put(val,key);
+    tx.oncomplete = ()=>resolve();
+    tx.onerror = ()=>reject(tx.error);
+  });
+}
+async function idbDelete(key){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction('handles','readwrite');
+    tx.objectStore('handles').delete(key);
+    tx.oncomplete = ()=>resolve();
+    tx.onerror = ()=>reject(tx.error);
+  });
+}
+async function obtenerCarpetaDestino(forzarSeleccion){
+  if(!forzarSeleccion){
+    try{
+      const guardado = await idbGet('carpetaDestinoGuias');
+      if(guardado){
+        let permiso = await guardado.queryPermission({ mode:'readwrite' });
+        if(permiso!=='granted') permiso = await guardado.requestPermission({ mode:'readwrite' });
+        if(permiso==='granted') return guardado;
+      }
+    }catch(e){ /* carpeta ya no existe o no soportado, se pide de nuevo abajo */ }
+  }
+  const handle = await window.showDirectoryPicker({ id:'carpetaGuias' });
+  await idbSet('carpetaDestinoGuias', handle);
+  return handle;
+}
+async function cambiarCarpetaDestino(){
+  try{
+    await obtenerCarpetaDestino(true);
+    toast('Carpeta de destino actualizada — se usará desde ahora en cada descarga.');
+  }catch(e){ /* canceló el selector */ }
+}
+
 async function descargarFotos(){
   const filtradas = entregas.filter(e=>{
     if(filtros.transportista && e.transportista !== filtros.transportista) return false;
@@ -917,8 +976,8 @@ async function descargarFotos(){
 
   if(window.showDirectoryPicker){
     let dirHandle;
-    try{ dirHandle = await window.showDirectoryPicker(); }
-    catch(e){ return; } // el usuario canceló el selector
+    try{ dirHandle = await obtenerCarpetaDestino(false); }
+    catch(e){ box.innerHTML = '⚠️ No se eligió ninguna carpeta.'; return; } // el usuario canceló el selector
 
     let ok=0, fail=0;
     for(let i=0;i<filtradas.length;i++){
