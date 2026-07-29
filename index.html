@@ -115,6 +115,12 @@ let filtros = { transportista:'', cliente:'', mes:'', busqueda:'' };
 let capturedPhotoBase64 = null;
 let ocrSuggestions = { nv: [], guia: [] };
 
+function togglePassword(inputId, spanEl){
+  const input = document.getElementById(inputId);
+  if(input.type==='password'){ input.type='text'; spanEl.textContent='🙈'; }
+  else{ input.type='password'; spanEl.textContent='👁️'; }
+}
+
 function toast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
@@ -290,7 +296,10 @@ function renderLogin(){
       <label>Usuario</label>
       <input id="loginUser" placeholder="Tu usuario" autocomplete="username">
       <label>Contraseña</label>
-      <input id="loginPass" type="password" placeholder="Tu contraseña" autocomplete="current-password">
+      <div style="position:relative;">
+        <input id="loginPass" type="password" placeholder="Tu contraseña" autocomplete="current-password" style="padding-right:38px;">
+        <span onclick="togglePassword('loginPass', this)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;">👁️</span>
+      </div>
       <button class="btn-primary" onclick="doLogin()">Ingresar</button>
       <small class="hint">Usuario y contraseña los asigna el administrador. Si no tienes uno, pídeselo a Petroflex.</small>
     </div>
@@ -577,7 +586,11 @@ function tplUsuarios(){
         <option value="supervisor">Supervisor</option>
       </select>
       <label>Usuario (login)</label><input id="uUsername" placeholder="ej: jperez">
-      <label>Contraseña</label><input id="uPassword" placeholder="Defínela tú">
+      <label>Contraseña</label>
+      <div style="position:relative;">
+        <input id="uPassword" placeholder="Defínela tú" type="password" style="padding-right:38px;">
+        <span onclick="togglePassword('uPassword', this)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;">👁️</span>
+      </div>
       <div id="uCamposTransportista">
         <label>RUT Empresa (transportista)</label><input id="uRutEmpresa" placeholder="ej: 76182895-9">
         <label>Nombre empresa</label><input id="uNombreEmpresa">
