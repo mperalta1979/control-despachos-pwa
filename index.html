@@ -482,6 +482,7 @@ function renderAdmin(){
       <div class="tab ${currentTab==='importar'?'active':''}" onclick="setTab('importar')">Importar guías</div>
       ${esAdmin ? `<div class="tab ${currentTab==='usuarios'?'active':''}" onclick="setTab('usuarios')">Usuarios</div>` : ''}
       ${esAdmin ? `<div class="tab ${currentTab==='config'?'active':''}" onclick="setTab('config')">Config</div>` : ''}
+      <div class="tab" onclick="actualizarDatos()" style="flex:0 0 auto;padding-left:14px;padding-right:14px;">🔄</div>
     </div>
     <div id="adminBody"></div>
   `;
@@ -780,6 +781,13 @@ function procesarImportMaestro(){
   reader.readAsBinaryString(file);
 }
 
+function fechaLocalStr(d){
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function tplDashboard(){
   const transportistasUnicos = [...new Set(guiasAsignadas.map(g=>g.transportista).filter(Boolean))].sort();
   const mesesUnicos = [...new Set(guiasAsignadas.map(g=>(g.fecha||'').slice(0,7)).filter(Boolean))].sort().reverse();
@@ -809,9 +817,9 @@ function tplDashboard(){
   const pendientes = guiasAsignadas.filter(g=>!entregas.some(e=>e.guia===g.guia)).filter(pasaFiltro);
   const entregadas = entregas.slice().filter(pasaFiltroEntrega).sort((a,b)=> new Date(b.fecha)-new Date(a.fecha));
   const hayFiltrosActivos = filtros.transportista||filtros.cliente||filtros.mes||filtros.busqueda;
-  const hoyStr = new Date().toISOString().slice(0,10);
+  const hoyStr = fechaLocalStr(new Date());
   const pendientesAMostrar = hayFiltrosActivos ? pendientes : pendientes.filter(g=>g.fecha===hoyStr);
-  const entregadasAMostrar = hayFiltrosActivos ? entregadas : entregadas.filter(e=>e.fecha.startsWith(hoyStr));
+  const entregadasAMostrar = hayFiltrosActivos ? entregadas : entregadas.filter(e=>fechaLocalStr(new Date(e.fecha))===hoyStr);
   const fmtFechaDisplay = (f)=>{
     if(!f || !/^\d{4}-\d{2}-\d{2}$/.test(f)) return f||'-';
     const [y,m,d] = f.split('-');
@@ -1107,7 +1115,7 @@ function procesarImport(){
     const rows = XLSX.utils.sheet_to_json(ws, { defval:'' });
     const norm = (obj, keys)=>{ for(const k of Object.keys(obj)){ if(keys.includes(k.toLowerCase().trim())) return obj[k]; } return ''; };
     const fmtFecha = (v)=>{
-      if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+      if(v instanceof Date && !isNaN(v)) return fechaLocalStr(v);
       return String(v||'').trim();
     };
     const vistos = new Set();
@@ -1186,7 +1194,34 @@ function exportarExcel(){
 /* ============================================================
    NAV / BOOT
    ============================================================ */
-function setTab(t){ currentTab = t; boot(true); }
+let guiasCargadas = false;
+
+async function asegurarGuiasParaTab(t){
+  const necesitaGuias = (session.rol==='admin' || session.rol==='supervisor') && (t==='dash' || t==='ranking') && !guiasCargadas;
+  if(necesitaGuias){
+    const body = document.getElementById('adminBody');
+    if(body) body.innerHTML = '<div class="card"><p class="muted">⏳ Cargando guías...</p></div>';
+    await dbLoadGuiasAll();
+    guiasCargadas = true;
+  }
+}
+
+async function setTab(t){
+  currentTab = t;
+  await asegurarGuiasParaTab(t);
+  boot(true);
+}
+
+async function actualizarDatos(){
+  const body = document.getElementById('adminBody');
+  if(body) body.innerHTML = '<div class="card"><p class="muted">⏳ Actualizando...</p></div>';
+  await Promise.all([dbLoadEntregas(), dbLoadUsuarios(), dbLoadMaestro()]);
+  regenerarListaLogin();
+  if(session.rol==='transportista') await dbLoadGuiasPorTransportista(session.nombre);
+  else { await dbLoadGuiasAll(); guiasCargadas = true; }
+  toast('Datos actualizados');
+  boot(true);
+}
 
 async function boot(skipReload){
   if(!session){
@@ -1197,9 +1232,12 @@ async function boot(skipReload){
     await Promise.all([dbLoadEntregas(), dbLoadUsuarios(), dbLoadMaestro()]);
     regenerarListaLogin();
     if(session.rol==='transportista') await dbLoadGuiasPorTransportista(session.nombre);
-    else await dbLoadGuiasAll();
   }
-  if(session.rol==='admin' || session.rol==='supervisor') renderAdmin(); else renderTransportista();
+  if(session.rol==='admin' || session.rol==='supervisor'){
+    if(currentTab==='nueva' || currentTab==='mis') currentTab = 'dash';
+    if(!skipReload) await asegurarGuiasParaTab(currentTab);
+    renderAdmin();
+  } else renderTransportista();
 }
 boot();
 </script>
