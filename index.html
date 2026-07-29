@@ -224,6 +224,45 @@ async function dbReplaceCollection(collName, docsConId){
 
 /* Subida de foto a Cloudinary (unsigned). Si no está configurado, se
    guarda el base64 directo en el registro (funciona, pero pesa más). */
+async function dbLoadConfigPublica(){
+  try{
+    const doc = await db.collection('config').doc('app').get();
+    if(doc.exists){
+      const d = doc.data();
+      if(d.cloudinaryCloudName) CONFIG.CLOUDINARY_CLOUD_NAME = d.cloudinaryCloudName;
+      if(d.cloudinaryUploadPreset) CONFIG.CLOUDINARY_UPLOAD_PRESET = d.cloudinaryUploadPreset;
+      saveConfig();
+    }
+  }catch(e){ console.warn('dbLoadConfigPublica fallo, uso lo que haya en este dispositivo', e); }
+}
+async function dbGuardarConfigPublica(){
+  try{
+    await db.collection('config').doc('app').set({
+      cloudinaryCloudName: CONFIG.CLOUDINARY_CLOUD_NAME,
+      cloudinaryUploadPreset: CONFIG.CLOUDINARY_UPLOAD_PRESET
+    });
+    return { ok:true };
+  }catch(e){ return { ok:false, motivo: e.message }; }
+}
+
+/* Achica la foto antes de subirla — más rápido y evita superar límites si algún
+   día Cloudinary falla y hay que guardarla directo en la base de datos */
+function comprimirFoto(base64, maxAncho=1600, calidad=0.75){
+  return new Promise((resolve)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      let w = img.width, h = img.height;
+      if(w > maxAncho){ h = Math.round(h * (maxAncho/w)); w = maxAncho; }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', calidad));
+    };
+    img.onerror = ()=>resolve(base64); // si falla, usa la original
+    img.src = base64;
+  });
+}
+
 async function subirFoto(base64){
   if(!CONFIG.CLOUDINARY_CLOUD_NAME || !CONFIG.CLOUDINARY_UPLOAD_PRESET){
     return { url: base64, local:true };
@@ -418,12 +457,20 @@ async function registrarEntrega(){
   if(!nv || !guia) return toast('N° NV y N° Guía son obligatorios');
   if(!capturedPhotoBase64) return toast('La foto de la guía es obligatoria');
 
+  toast('Preparando la foto...');
+  let fotoParaSubir = await comprimirFoto(capturedPhotoBase64);
   toast('Subiendo...');
   let fotoResult;
   try{
-    fotoResult = await subirFoto(capturedPhotoBase64);
+    fotoResult = await subirFoto(fotoParaSubir);
   }catch(e){
-    fotoResult = { url: capturedPhotoBase64, local:true };
+    fotoResult = { url: fotoParaSubir, local:true };
+  }
+  // Si Cloudinary no está disponible y el respaldo sigue siendo muy pesado para guardar
+  // directo en la base de datos, se comprime más fuerte antes de intentar de nuevo.
+  if(fotoResult.local && fotoResult.url.length > 900000){
+    const masComprimida = await comprimirFoto(capturedPhotoBase64, 1000, 0.5);
+    fotoResult = { url: masComprimida, local:true };
   }
 
   const registro = {
@@ -1161,11 +1208,12 @@ function tplConfig(){
 }
 
 function wireConfig(){}
-function guardarConfigUI(){
+async function guardarConfigUI(){
   CONFIG.CLOUDINARY_CLOUD_NAME = document.getElementById('cfgCloud').value.trim();
   CONFIG.CLOUDINARY_UPLOAD_PRESET = document.getElementById('cfgPreset').value.trim();
   saveConfig();
-  toast('Configuración guardada');
+  const res = await dbGuardarConfigPublica();
+  toast(res.ok ? 'Configuración guardada y compartida con todos los dispositivos' : '⚠️ Se guardó solo en este dispositivo: ' + res.motivo);
 }
 
 function exportarExcel(){
@@ -1225,7 +1273,7 @@ async function actualizarDatos(){
 
 async function boot(skipReload){
   if(!session){
-    if(!skipReload) await dbLoadUsuarios();
+    if(!skipReload){ await dbLoadConfigPublica(); await dbLoadUsuarios(); }
     return renderLogin();
   }
   if(!skipReload){
