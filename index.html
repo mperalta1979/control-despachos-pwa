@@ -288,16 +288,27 @@ async function dbGuardarConfigPublica(){
 
 /* Aviso por Telegram — se manda a todos los chat IDs configurados */
 async function enviarTelegram(mensaje){
-  if(!CONFIG.TELEGRAM_BOT_TOKEN || !CONFIG.TELEGRAM_CHAT_IDS) return;
+  if(!CONFIG.TELEGRAM_BOT_TOKEN || !CONFIG.TELEGRAM_CHAT_IDS){
+    console.warn('Telegram no configurado (falta token o chat IDs)');
+    return;
+  }
   const ids = CONFIG.TELEGRAM_CHAT_IDS.split(',').map(x=>x.trim()).filter(Boolean);
   for(const chatId of ids){
     try{
-      await fetch(`https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      const r = await fetch(`https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`, {
         method:'POST',
         headers:{ 'Content-Type':'application/json' },
         body: JSON.stringify({ chat_id: chatId, text: mensaje })
       });
-    }catch(e){ console.warn('No se pudo avisar a Telegram (chat '+chatId+')', e); }
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok || !d.ok){
+        console.warn('Telegram respondió con error para chat '+chatId+':', d);
+        toast('⚠️ Aviso de Telegram no enviado (chat '+chatId+'): ' + (d.description || 'error desconocido'));
+      }
+    }catch(e){
+      console.warn('No se pudo avisar a Telegram (chat '+chatId+')', e);
+      toast('⚠️ No se pudo contactar a Telegram: ' + e.message);
+    }
   }
 }
 
