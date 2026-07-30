@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Control de Despachos</title>
 <link rel="manifest" id="manifestLink">
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://res.cloudinary.com" crossorigin>
+<link rel="preconnect" href="https://api.cloudinary.com" crossorigin>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -63,7 +68,7 @@
   <div class="who" id="whoBox"></div>
 </header>
 
-<main id="app"></main>
+<main id="app"><div class="card"><p class="muted">⏳ Cargando…</p></div></main>
 
 <div id="toast" class="toast"></div>
 <div id="fotoModalBg" class="modal-bg">
@@ -81,7 +86,9 @@
 let CONFIG = JSON.parse(localStorage.getItem('cd_config') || '{}');
 CONFIG = Object.assign({
   CLOUDINARY_CLOUD_NAME: '',   // ej: dxxxx
-  CLOUDINARY_UPLOAD_PRESET: '' // unsigned upload preset
+  CLOUDINARY_UPLOAD_PRESET: '', // unsigned upload preset
+  TELEGRAM_BOT_TOKEN: '',
+  TELEGRAM_CHAT_IDS: '' // separados por coma
 }, CONFIG);
 
 function saveConfig(){ localStorage.setItem('cd_config', JSON.stringify(CONFIG)); }
@@ -261,6 +268,8 @@ async function dbLoadConfigPublica(){
       const d = doc.data();
       if(d.cloudinaryCloudName) CONFIG.CLOUDINARY_CLOUD_NAME = d.cloudinaryCloudName;
       if(d.cloudinaryUploadPreset) CONFIG.CLOUDINARY_UPLOAD_PRESET = d.cloudinaryUploadPreset;
+      if(d.telegramBotToken) CONFIG.TELEGRAM_BOT_TOKEN = d.telegramBotToken;
+      if(d.telegramChatIds) CONFIG.TELEGRAM_CHAT_IDS = d.telegramChatIds;
       saveConfig();
     }
   }catch(e){ console.warn('dbLoadConfigPublica fallo, uso lo que haya en este dispositivo', e); }
@@ -269,11 +278,29 @@ async function dbGuardarConfigPublica(){
   try{
     await db.collection('config').doc('app').set({
       cloudinaryCloudName: CONFIG.CLOUDINARY_CLOUD_NAME,
-      cloudinaryUploadPreset: CONFIG.CLOUDINARY_UPLOAD_PRESET
+      cloudinaryUploadPreset: CONFIG.CLOUDINARY_UPLOAD_PRESET,
+      telegramBotToken: CONFIG.TELEGRAM_BOT_TOKEN,
+      telegramChatIds: CONFIG.TELEGRAM_CHAT_IDS
     });
     return { ok:true };
   }catch(e){ return { ok:false, motivo: e.message }; }
 }
+
+/* Aviso por Telegram — se manda a todos los chat IDs configurados */
+async function enviarTelegram(mensaje){
+  if(!CONFIG.TELEGRAM_BOT_TOKEN || !CONFIG.TELEGRAM_CHAT_IDS) return;
+  const ids = CONFIG.TELEGRAM_CHAT_IDS.split(',').map(x=>x.trim()).filter(Boolean);
+  for(const chatId of ids){
+    try{
+      await fetch(`https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: mensaje })
+      });
+    }catch(e){ console.warn('No se pudo avisar a Telegram (chat '+chatId+')', e); }
+  }
+}
+
 
 /* Achica la foto antes de subirla — más rápido y evita superar límites si algún
    día Cloudinary falla y hay que guardarla directo en la base de datos */
@@ -529,6 +556,7 @@ async function registrarEntrega(){
     toast('⚠️ No se pudo guardar en la nube (' + res.motivo + '). Quedó guardado solo en este celular — avisa al administrador.');
   } else {
     toast('✅ Entrega registrada');
+    enviarTelegram(`📦 Nueva entrega registrada\nGuía: ${guia}\nNV: ${nv}\nTransportista: ${session.nombre}\nCliente: ${cliente || '-'}`);
   }
 
   capturedPhotoBase64 = null; ocrSuggestions = { nv:[], guia:[] };
@@ -1310,13 +1338,20 @@ async function procesarImport(){
 function tplConfig(){
   return `<div class="card">
     <h2>Configuración técnica</h2>
-    <p class="muted">✅ La base de datos (Firebase) ya está conectada — no necesitas configurar nada aquí para eso, solo para las fotos.</p>
+    <p class="muted">✅ La base de datos (Firebase) ya está conectada — no necesitas configurar nada aquí para eso, solo para las fotos y los avisos.</p>
     <label>Cloudinary — Cloud name</label>
     <input id="cfgCloud" value="${CONFIG.CLOUDINARY_CLOUD_NAME}" placeholder="ej: dxxxx">
     <label>Cloudinary — Upload preset (unsigned)</label>
     <input id="cfgPreset" value="${CONFIG.CLOUDINARY_UPLOAD_PRESET}">
-    <button class="btn-primary" onclick="guardarConfigUI()">Guardar configuración</button>
     <small class="hint">Sin estos datos, las fotos de las guías se guardan directo en la base de datos en vez de en Cloudinary (funciona igual, pero pesa más). Recomendado dejarlos configurados.</small>
+
+    <label style="margin-top:16px;">Telegram — Token del bot</label>
+    <input id="cfgTelegramToken" value="${CONFIG.TELEGRAM_BOT_TOKEN}" placeholder="ej: 8745086069:AAFo...">
+    <label>Telegram — Chat IDs que reciben el aviso (separados por coma)</label>
+    <input id="cfgTelegramChatIds" value="${CONFIG.TELEGRAM_CHAT_IDS}" placeholder="ej: 8615483352, 123456789">
+    <small class="hint">Se manda un mensaje a estos chats cada vez que un transportista registra una entrega. Deja el token vacío si por ahora no quieres avisos.</small>
+
+    <button class="btn-primary" style="margin-top:14px;" onclick="guardarConfigUI()">Guardar configuración</button>
   </div>`;
 }
 
@@ -1324,6 +1359,8 @@ function wireConfig(){}
 async function guardarConfigUI(){
   CONFIG.CLOUDINARY_CLOUD_NAME = document.getElementById('cfgCloud').value.trim();
   CONFIG.CLOUDINARY_UPLOAD_PRESET = document.getElementById('cfgPreset').value.trim();
+  CONFIG.TELEGRAM_BOT_TOKEN = document.getElementById('cfgTelegramToken').value.trim();
+  CONFIG.TELEGRAM_CHAT_IDS = document.getElementById('cfgTelegramChatIds').value.trim();
   saveConfig();
   const res = await dbGuardarConfigPublica();
   toast(res.ok ? 'Configuración guardada y compartida con todos los dispositivos' : '⚠️ Se guardó solo en este dispositivo: ' + res.motivo);
