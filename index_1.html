@@ -1,0 +1,1422 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Control de Despachos</title>
+<link rel="manifest" id="manifestLink">
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://res.cloudinary.com" crossorigin>
+<link rel="preconnect" href="https://api.cloudinary.com" crossorigin>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<style>
+  :root{
+    --azul:#0a2f5c; --azul2:#123f78; --celeste:#eaf2fb; --rojo:#c0392b;
+    --verde:#1e8449; --gris:#6b7280; --borde:#c9d9ec;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--celeste);color:#111;}
+  header{background:var(--azul);color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10;}
+  header h1{font-size:17px;margin:0;}
+  header .who{font-size:12px;opacity:.85;}
+  main{max-width:720px;margin:0 auto;padding:14px;padding-bottom:80px;}
+  .card{background:#fff;border:1px solid var(--borde);border-radius:10px;padding:14px;margin-bottom:14px;}
+  .card h2{font-size:15px;margin:0 0 10px;color:var(--azul);}
+  label{display:block;font-size:12.5px;color:#333;margin:8px 0 4px;font-weight:600;}
+  input,select,textarea{width:100%;padding:9px;border:1px solid var(--borde);border-radius:8px;font-size:14px;background:#fff;}
+  button{cursor:pointer;border:none;border-radius:8px;padding:10px 14px;font-size:14px;font-weight:600;}
+  .btn-primary{background:var(--azul2);color:#fff;width:100%;margin-top:10px;}
+  .btn-secondary{background:#fff;color:var(--azul2);border:1px solid var(--azul2);}
+  .btn-danger{background:var(--rojo);color:#fff;}
+  .btn-sm{padding:6px 10px;font-size:12.5px;}
+  .row{display:flex;gap:8px;}
+  .row > *{flex:1;}
+  .tabs{display:flex;gap:6px;margin-bottom:12px;}
+  .tab{flex:1;text-align:center;padding:9px;border-radius:8px;background:#fff;border:1px solid var(--borde);font-size:13px;font-weight:600;color:var(--gris);}
+  .tab.active{background:var(--azul2);color:#fff;border-color:var(--azul2);}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th,td{border-bottom:1px solid var(--borde);padding:6px 4px;text-align:left;}
+  th{color:var(--azul);font-size:11.5px;text-transform:uppercase;}
+  .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;}
+  .badge-ok{background:#d5f0dd;color:var(--verde);}
+  .badge-pend{background:#fde3e0;color:var(--rojo);}
+  .thumb{width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--borde);cursor:pointer;}
+  .muted{color:var(--gris);font-size:12px;}
+  .ocr-box{background:#f4f8fd;border:1px dashed var(--borde);border-radius:8px;padding:8px;margin-top:8px;font-size:12.5px;}
+  .pill{display:inline-block;background:var(--celeste);border:1px solid var(--borde);border-radius:20px;padding:6px 10px;font-size:12.5px;margin:3px;}
+  .rank-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--borde);}
+  .bar{background:#e3edf9;border-radius:6px;height:8px;overflow:hidden;margin-top:4px;}
+  .bar-fill{height:100%;background:var(--verde);}
+  .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:99;opacity:0;transition:opacity .3s;}
+  .toast.show{opacity:1;}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50;padding:16px;}
+  .modal-bg.show{display:flex;}
+  .modal{background:#fff;border-radius:10px;padding:16px;max-width:480px;width:100%;max-height:85vh;overflow:auto;}
+  .modal img{width:100%;border-radius:8px;}
+  .close-x{float:right;background:none;color:var(--gris);font-size:18px;padding:0;}
+  small.hint{display:block;color:var(--gris);margin-top:3px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📦 Control de Despachos</h1>
+  <div class="who" id="whoBox"></div>
+</header>
+
+<main id="app"><div class="card"><p class="muted">⏳ Cargando…</p></div></main>
+
+<div id="toast" class="toast"></div>
+<div id="fotoModalBg" class="modal-bg">
+  <div class="modal">
+    <button class="close-x" onclick="closeFotoModal()">✕</button>
+    <img id="fotoModalImg" src="">
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   CONFIG — completa esto una sola vez (o desde la pantalla de
+   Configuración dentro de la app, quedará guardado en el navegador)
+   ============================================================ */
+let CONFIG = JSON.parse(localStorage.getItem('cd_config') || '{}');
+CONFIG = Object.assign({
+  CLOUDINARY_CLOUD_NAME: '',   // ej: dxxxx
+  CLOUDINARY_UPLOAD_PRESET: '' // unsigned upload preset
+}, CONFIG);
+
+function saveConfig(){ localStorage.setItem('cd_config', JSON.stringify(CONFIG)); }
+
+/* ============================================================
+   FIREBASE — base de datos en la nube (Firestore)
+   ============================================================ */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBk9p-FW-1EuD0JC-UhGPYnC_rsoc_7eZE",
+  authDomain: "control-despachos-fbfa4.firebaseapp.com",
+  projectId: "control-despachos-fbfa4",
+  storageBucket: "control-despachos-fbfa4.firebasestorage.app",
+  messagingSenderId: "418623821173",
+  appId: "1:418623821173:web:6d5bf4bf9b2cd724a26f3c"
+};
+firebase.initializeApp(FIREBASE_CONFIG);
+const db = firebase.firestore();
+const auth = firebase.auth();
+
+/* Inicio de sesión anónimo automático — así solo quien realmente abrió la
+   app (no cualquier robot que encuentre la URL) puede leer/escribir datos. */
+let authReadyResolve;
+const authReady = new Promise(resolve=>{ authReadyResolve = resolve; });
+auth.onAuthStateChanged(user=>{
+  if(user) authReadyResolve(user);
+});
+auth.signInAnonymously().catch(e=>{
+  console.warn('No se pudo iniciar sesión anónima en Firebase', e);
+  authReadyResolve(null); // deja seguir igual; las llamadas a Firestore fallarán con permiso denegado si las reglas lo exigen
+});
+
+/* ============================================================
+   ESTADO
+   ============================================================ */
+let session = JSON.parse(localStorage.getItem('cd_session') || 'null');
+let entregas = JSON.parse(localStorage.getItem('cd_entregas_cache') || '[]'); // cache local
+let transportistasList = JSON.parse(localStorage.getItem('cd_transportistas_cache') || '[]'); // derivado del maestro
+let maestroTransportistas = JSON.parse(localStorage.getItem('cd_maestro_cache') || '[]'); // maestro completo, solo admin
+let usuarios = JSON.parse(localStorage.getItem('cd_usuarios_cache') || '[]'); // cuentas usuario/clave, creadas por el admin
+let pendingQueue = JSON.parse(localStorage.getItem('cd_pending_queue') || '[]'); // sin conexión
+let guiasAsignadas = JSON.parse(localStorage.getItem('cd_guias_asignadas') || '[]'); // import admin
+let currentTab = 'nueva';
+let filtros = { transportista:'', cliente:'', mes:'', busqueda:'' };
+let capturedPhotoBase64 = null;
+let ocrSuggestions = { nv: [], guia: [] };
+
+function cargarXLSX(){
+  return new Promise((resolve, reject)=>{
+    if(window.XLSX) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload = ()=>resolve();
+    s.onerror = ()=>reject(new Error('No se pudo descargar la librería de Excel'));
+    document.head.appendChild(s);
+  });
+}
+
+function togglePassword(inputId, spanEl){
+  const input = document.getElementById(inputId);
+  if(input.type==='password'){ input.type='text'; spanEl.textContent='🙈'; }
+  else{ input.type='password'; spanEl.textContent='👁️'; }
+}
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 4200);
+}
+
+/* ============================================================
+   CAPA DE DATOS — Firestore. Cada registro es un documento
+   independiente (no un solo bloque gigante), así dos personas
+   pueden guardar al mismo tiempo sin pisarse, y no hay límite
+   de tamaño como en jsonbin.
+   ============================================================ */
+async function dbLoadEntregas(){
+  try{
+    const snap = await db.collection('entregas').get();
+    entregas = snap.docs.map(d=>d.data());
+    localStorage.setItem('cd_entregas_cache', JSON.stringify(entregas));
+  }catch(e){ console.warn('dbLoadEntregas fallo, uso cache local', e); }
+}
+async function dbSaveEntrega(registro){
+  try{ await db.collection('entregas').doc(registro.id).set(registro); return { ok:true }; }
+  catch(e){ return { ok:false, motivo: e.message }; }
+}
+
+async function dbLoadUsuarios(){
+  try{
+    const snap = await db.collection('usuarios').get();
+    usuarios = snap.docs.map(d=>d.data());
+    localStorage.setItem('cd_usuarios_cache', JSON.stringify(usuarios));
+  }catch(e){ console.warn('dbLoadUsuarios fallo, uso cache local', e); }
+}
+async function dbSaveUsuario(u, oldUsername){
+  try{
+    if(oldUsername && oldUsername!==u.username) await db.collection('usuarios').doc(oldUsername).delete();
+    await db.collection('usuarios').doc(u.username).set(u);
+    return { ok:true };
+  }catch(e){ return { ok:false, motivo: e.message }; }
+}
+async function dbDeleteUsuario(username){
+  try{ await db.collection('usuarios').doc(username).delete(); return { ok:true }; }
+  catch(e){ return { ok:false, motivo: e.message }; }
+}
+
+async function dbLoadMaestro(){
+  try{
+    const snap = await db.collection('maestro').get();
+    maestroTransportistas = snap.docs.map(d=>Object.assign({}, d.data(), { _docId: d.id }));
+    localStorage.setItem('cd_maestro_cache', JSON.stringify(maestroTransportistas));
+  }catch(e){ console.warn('dbLoadMaestro fallo, uso cache local', e); }
+}
+async function dbSaveChofer(m, docId){
+  try{
+    const id = docId || m.rutChofer;
+    await db.collection('maestro').doc(id).set(m);
+    return { ok:true };
+  }catch(e){ return { ok:false, motivo: e.message }; }
+}
+async function dbDeleteChofer(docId){
+  try{ await db.collection('maestro').doc(docId).delete(); return { ok:true }; }
+  catch(e){ return { ok:false, motivo: e.message }; }
+}
+
+async function dbLoadGuiasAll(){
+  try{
+    const snap = await db.collection('guias').get();
+    guiasAsignadas = snap.docs.map(d=>d.data());
+    localStorage.setItem('cd_guias_asignadas', JSON.stringify(guiasAsignadas));
+  }catch(e){ console.warn('dbLoadGuiasAll fallo, uso cache local', e); }
+}
+async function dbLoadGuiasPorTransportista(nombre){
+  try{
+    if(!nombre){ guiasAsignadas = []; return; }
+    const snap = await db.collection('guias').where('transportista','==',nombre).get();
+    guiasAsignadas = snap.docs.map(d=>d.data());
+    localStorage.setItem('cd_guias_asignadas', JSON.stringify(guiasAsignadas));
+  }catch(e){ console.warn('dbLoadGuiasPorTransportista fallo, uso cache local', e); }
+}
+
+/* Escritura en lotes (Firestore permite hasta 500 operaciones por batch) */
+async function dbBatchSet(collName, docsConId){ // [{id, data}]
+  try{
+    for(let i=0;i<docsConId.length;i+=450){
+      const batch = db.batch();
+      docsConId.slice(i,i+450).forEach(it=>batch.set(db.collection(collName).doc(it.id), it.data));
+      await batch.commit();
+    }
+    return { ok:true };
+  }catch(e){ return { ok:false, motivo: e.message }; }
+}
+async function dbClearCollection(collName){
+  try{
+    const snap = await db.collection(collName).get();
+    const docs = snap.docs;
+    for(let i=0;i<docs.length;i+=450){
+      const batch = db.batch();
+      docs.slice(i,i+450).forEach(d=>batch.delete(d.ref));
+      await batch.commit();
+    }
+    return { ok:true };
+  }catch(e){ return { ok:false, motivo: e.message }; }
+}
+async function dbReplaceCollection(collName, docsConId){
+  const clr = await dbClearCollection(collName);
+  if(!clr.ok) return clr;
+  return await dbBatchSet(collName, docsConId);
+}
+
+/* Subida de foto a Cloudinary (unsigned). Si no está configurado, se
+   guarda el base64 directo en el registro (funciona, pero pesa más). */
+async function dbLoadConfigPublica(){
+  try{
+    const doc = await db.collection('config').doc('app').get();
+    if(doc.exists){
+      const d = doc.data();
+      if(d.cloudinaryCloudName) CONFIG.CLOUDINARY_CLOUD_NAME = d.cloudinaryCloudName;
+      if(d.cloudinaryUploadPreset) CONFIG.CLOUDINARY_UPLOAD_PRESET = d.cloudinaryUploadPreset;
+      saveConfig();
+    }
+  }catch(e){ console.warn('dbLoadConfigPublica fallo, uso lo que haya en este dispositivo', e); }
+}
+async function dbGuardarConfigPublica(){
+  try{
+    await db.collection('config').doc('app').set({
+      cloudinaryCloudName: CONFIG.CLOUDINARY_CLOUD_NAME,
+      cloudinaryUploadPreset: CONFIG.CLOUDINARY_UPLOAD_PRESET
+    });
+    return { ok:true };
+  }catch(e){ return { ok:false, motivo: e.message }; }
+}
+
+/* Achica la foto antes de subirla — más rápido y evita superar límites si algún
+   día Cloudinary falla y hay que guardarla directo en la base de datos */
+function comprimirFoto(base64, maxAncho=1600, calidad=0.75){
+  return new Promise((resolve)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      let w = img.width, h = img.height;
+      if(w > maxAncho){ h = Math.round(h * (maxAncho/w)); w = maxAncho; }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', calidad));
+    };
+    img.onerror = ()=>resolve(base64); // si falla, usa la original
+    img.src = base64;
+  });
+}
+
+async function subirFoto(base64){
+  if(!CONFIG.CLOUDINARY_CLOUD_NAME || !CONFIG.CLOUDINARY_UPLOAD_PRESET){
+    return { url: base64, local:true };
+  }
+  const form = new FormData();
+  form.append('file', base64);
+  form.append('upload_preset', CONFIG.CLOUDINARY_UPLOAD_PRESET);
+  const r = await fetch(`https://api.cloudinary.com/v1_1/${CONFIG.CLOUDINARY_CLOUD_NAME}/image/upload`, { method:'POST', body: form });
+  const d = await r.json();
+  if(d.secure_url) return { url:d.secure_url, local:false };
+  throw new Error('Cloudinary: ' + (d.error?.message || 'error desconocido'));
+}
+
+/* ============================================================
+   LOGIN simple (rol + nombre). El admin gestiona transportistas
+   desde la pestaña Configuración.
+   ============================================================ */
+const ADMIN_USER = { username:'admin', password:'petroflex1726' };
+
+function renderLogin(){
+  document.getElementById('whoBox').textContent = '';
+  document.getElementById('app').innerHTML = `
+    <div class="card">
+      <h2>Ingresar</h2>
+      <label>Usuario</label>
+      <input id="loginUser" placeholder="Tu usuario" autocomplete="username">
+      <label>Contraseña</label>
+      <div style="position:relative;">
+        <input id="loginPass" type="password" placeholder="Tu contraseña" autocomplete="current-password" style="padding-right:38px;">
+        <span onclick="togglePassword('loginPass', this)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;">👁️</span>
+      </div>
+      <button class="btn-primary" onclick="doLogin()">Ingresar</button>
+      <small class="hint">Usuario y contraseña los asigna el administrador. Si no tienes uno, pídeselo a Petroflex.</small>
+    </div>
+  `;
+}
+async function doLogin(){
+  const user = document.getElementById('loginUser').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  if(!user || !pass) return toast('Ingresa usuario y contraseña');
+
+  if(user===ADMIN_USER.username && pass===ADMIN_USER.password){
+    session = { rol:'admin', nombre:'Marcelo', username:user };
+    localStorage.setItem('cd_session', JSON.stringify(session));
+    return boot();
+  }
+
+  if(!datosLoginListos){
+    toast('Un momento, verificando...');
+    await datosLoginPromise;
+  }
+
+  const u = usuarios.find(x=>x.username===user);
+  if(!u) return toast('Usuario o contraseña incorrectos');
+  if(u.bloqueado) return toast('Este usuario está bloqueado. Contacta al administrador.');
+  if(u.password!==pass) return toast('Usuario o contraseña incorrectos');
+
+  session = {
+    rol: u.rol,
+    nombre: u.rol==='transportista' ? u.nombreChofer : (u.nombreDisplay || u.username),
+    username: u.username,
+    rutEmpresa: u.rutEmpresa || '',
+    rut: u.rutChofer || ''
+  };
+  localStorage.setItem('cd_session', JSON.stringify(session));
+  boot();
+}
+function logout(){ session=null; localStorage.removeItem('cd_session'); boot(); }
+
+/* ============================================================
+   VISTA TRANSPORTISTA
+   ============================================================ */
+function renderTransportista(){
+  document.getElementById('whoBox').innerHTML = `${session.nombre}${session.rut?' ('+session.rut+')':''} · <a href="#" onclick="logout()" style="color:#fff">salir</a>`;
+  const misEntregas = entregas.filter(e=>e.transportista===session.nombre).sort((a,b)=> new Date(b.fecha)-new Date(a.fecha));
+  const pendientesMios = guiasAsignadas.filter(g=>g.transportista===session.nombre && !entregas.some(e=>e.guia===g.guia));
+
+  document.getElementById('app').innerHTML = `
+    <div class="tabs">
+      <div class="tab ${currentTab==='nueva'?'active':''}" onclick="setTab('nueva')">Nueva entrega</div>
+      <div class="tab ${currentTab==='mis'?'active':''}" onclick="setTab('mis')">Mis entregas (${misEntregas.length})</div>
+    </div>
+    ${currentTab==='nueva' ? tplNuevaEntrega(pendientesMios) : tplMisEntregas(misEntregas)}
+  `;
+  if(currentTab==='nueva') wireNuevaEntrega();
+}
+
+function tplNuevaEntrega(pendientesMios){
+  return `
+    <div class="card">
+      <h2>Registrar entrega</h2>
+      ${pendientesMios.length ? `
+        <label>Guía pendiente (opcional, autocompleta)</label>
+        <select id="selPendiente">
+          <option value="">— elegir de mi ruta —</option>
+          ${pendientesMios.map(g=>`<option value="${g.guia}">Guía ${g.guia} · NV ${g.nv} · ${g.cliente||''}</option>`).join('')}
+        </select>
+      ` : `<p class="muted">No tienes una lista de guías cargada por el administrador. Puedes registrar igual manualmente.</p>`}
+
+      <label>Foto de la guía de despacho (4ª copia recepcionada)</label>
+      <input type="file" id="fotoInput" accept="image/*" capture="environment">
+      <div id="fotoPreviewBox"></div>
+      <button class="btn-secondary btn-sm" style="margin-top:8px;" id="btnOcr" disabled onclick="runOcr()">🔍 Leer números automáticamente (OCR)</button>
+      <div id="ocrStatus" class="ocr-box" style="display:none;"></div>
+
+      <label>N° Nota de Venta</label>
+      <input id="inpNV" placeholder="Ej: 45210">
+      <label>N° Guía de Despacho</label>
+      <input id="inpGuia" placeholder="Ej: 98231">
+      <label>Cliente (opcional)</label>
+      <input id="inpCliente" placeholder="Nombre del cliente">
+      <label>Comentario (opcional)</label>
+      <textarea id="inpComentario" rows="2" placeholder="Ej: recibido por bodeguero, sin observaciones"></textarea>
+
+      <button class="btn-primary" onclick="registrarEntrega()">✅ Registrar entrega</button>
+    </div>
+  `;
+}
+
+function wireNuevaEntrega(){
+  const sel = document.getElementById('selPendiente');
+  if(sel){
+    sel.onchange = ()=>{
+      const g = guiasAsignadas.find(x=>x.guia===sel.value);
+      if(g){ document.getElementById('inpGuia').value = g.guia; document.getElementById('inpNV').value = g.nv; document.getElementById('inpCliente').value = g.cliente||''; }
+    };
+  }
+  document.getElementById('fotoInput').onchange = async (ev)=>{
+    const file = ev.target.files[0];
+    if(!file) return;
+    const b64 = await fileToBase64(file);
+    capturedPhotoBase64 = b64;
+    document.getElementById('fotoPreviewBox').innerHTML = `<img src="${b64}" style="width:100%;border-radius:8px;margin-top:8px;">`;
+    document.getElementById('btnOcr').disabled = false;
+  };
+}
+
+function fileToBase64(file){
+  return new Promise((res,rej)=>{
+    const r = new FileReader();
+    r.onload = ()=>res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+function cargarTesseract(){
+  return new Promise((resolve, reject)=>{
+    if(window.Tesseract) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload = ()=>resolve();
+    s.onerror = ()=>reject(new Error('No se pudo descargar el lector OCR'));
+    document.head.appendChild(s);
+  });
+}
+
+async function runOcr(){
+  if(!capturedPhotoBase64) return;
+  const box = document.getElementById('ocrStatus');
+  box.style.display='block';
+  box.innerHTML = '⏳ Preparando el lector de texto (solo la primera vez)...';
+  try{
+    await cargarTesseract();
+  }catch(e){
+    box.innerHTML = '⚠️ No se pudo cargar el lector OCR (revisa tu conexión). Completa los números manualmente.';
+    return;
+  }
+  box.innerHTML = '⏳ Leyendo imagen, puede tardar unos segundos...';
+  try{
+    const { data } = await Tesseract.recognize(capturedPhotoBase64, 'spa', { logger:()=>{} });
+    const text = data.text || '';
+    const nvMatches = [...text.matchAll(/(?:N\.?V\.?|NOTA\s*DE\s*VENTA)\s*[:N°#]*\s*(\d{3,8})/gi)].map(m=>m[1]);
+    const guiaMatches = [...text.matchAll(/(?:GU[IÍ]A|G\.?D\.?)\s*[:N°#]*\s*(\d{3,8})/gi)].map(m=>m[1]);
+    const anyNumbers = [...text.matchAll(/\b(\d{4,8})\b/g)].map(m=>m[1]).slice(0,6);
+    ocrSuggestions = { nv: [...new Set(nvMatches)], guia: [...new Set(guiaMatches)], otros: [...new Set(anyNumbers)] };
+
+    box.innerHTML = `
+      <b>Sugerencias OCR (revisa antes de confirmar):</b><br>
+      ${ocrSuggestions.nv.length ? `NV detectado: ${ocrSuggestions.nv.map(n=>`<span class="pill" onclick="document.getElementById('inpNV').value='${n}'">${n}</span>`).join('')}` : ''}
+      ${ocrSuggestions.guia.length ? `<br>Guía detectada: ${ocrSuggestions.guia.map(n=>`<span class="pill" onclick="document.getElementById('inpGuia').value='${n}'">${n}</span>`).join('')}` : ''}
+      ${(!ocrSuggestions.nv.length && !ocrSuggestions.guia.length) ? `<br>No se identificaron claramente los rótulos "NV" o "Guía". Otros números vistos en la foto: ${ocrSuggestions.otros.map(n=>`<span class="pill" onclick="fillEither('${n}')">${n}</span>`).join('') || 'ninguno'}` : ''}
+      <br><small class="hint">Toca un número para copiarlo al campo correspondiente. El OCR es una ayuda, no reemplaza la verificación manual.</small>
+    `;
+  }catch(e){
+    box.innerHTML = '⚠️ No se pudo leer la imagen automáticamente. Completa los números manualmente.';
+  }
+}
+function fillEither(n){
+  if(!document.getElementById('inpNV').value) document.getElementById('inpNV').value = n;
+  else if(!document.getElementById('inpGuia').value) document.getElementById('inpGuia').value = n;
+}
+
+async function registrarEntrega(){
+  const nv = document.getElementById('inpNV').value.trim();
+  const guia = document.getElementById('inpGuia').value.trim();
+  const cliente = document.getElementById('inpCliente').value.trim();
+  const comentario = document.getElementById('inpComentario').value.trim();
+
+  if(!nv || !guia) return toast('N° NV y N° Guía son obligatorios');
+  if(!capturedPhotoBase64) return toast('La foto de la guía es obligatoria');
+
+  toast('Preparando la foto...');
+  let fotoParaSubir = await comprimirFoto(capturedPhotoBase64);
+  toast('Subiendo...');
+  let fotoResult;
+  try{
+    fotoResult = await subirFoto(fotoParaSubir);
+  }catch(e){
+    fotoResult = { url: fotoParaSubir, local:true };
+  }
+  // Si Cloudinary no está disponible y el respaldo sigue siendo muy pesado para guardar
+  // directo en la base de datos, se comprime más fuerte antes de intentar de nuevo.
+  if(fotoResult.local && fotoResult.url.length > 900000){
+    const masComprimida = await comprimirFoto(capturedPhotoBase64, 1000, 0.5);
+    fotoResult = { url: masComprimida, local:true };
+  }
+
+  const registro = {
+    id: 'e_' + Date.now(),
+    transportista: session.nombre,
+    transportistaRut: session.rut || '',
+    nv, guia, cliente, comentario,
+    fecha: new Date().toISOString(),
+    fotoUrl: fotoResult.url,
+    fotoLocalSinNube: !!fotoResult.local
+  };
+
+  entregas.push(registro);
+  const res = await dbSaveEntrega(registro);
+  if(!res.ok){
+    pendingQueue.push(registro.id);
+    localStorage.setItem('cd_pending_queue', JSON.stringify(pendingQueue));
+    toast('⚠️ No se pudo guardar en la nube (' + res.motivo + '). Quedó guardado solo en este celular — avisa al administrador.');
+  } else {
+    toast('✅ Entrega registrada');
+  }
+
+  capturedPhotoBase64 = null; ocrSuggestions = { nv:[], guia:[] };
+  currentTab = 'mis';
+  renderTransportista();
+}
+
+function tplMisEntregas(misEntregas){
+  if(!misEntregas.length) return `<div class="card"><p class="muted">Aún no registras entregas.</p></div>`;
+  return `<div class="card"><h2>Mis entregas</h2><table>
+    <tr><th>Foto</th><th>NV</th><th>Guía</th><th>Cliente</th><th>Fecha</th></tr>
+    ${misEntregas.map(e=>`
+      <tr>
+        <td><img class="thumb" src="${e.fotoUrl}" onclick="openFotoModal('${e.fotoUrl.replace(/'/g,"\\'")}')"></td>
+        <td>${e.nv}</td><td>${e.guia}</td><td>${e.cliente||'-'}</td>
+        <td>${new Date(e.fecha).toLocaleString('es-CL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</td>
+      </tr>`).join('')}
+  </table></div>`;
+}
+
+function openFotoModal(url){ document.getElementById('fotoModalImg').src=url; document.getElementById('fotoModalBg').classList.add('show'); }
+function closeFotoModal(){ document.getElementById('fotoModalBg').classList.remove('show'); }
+
+/* ============================================================
+   VISTA ADMIN
+   ============================================================ */
+function renderAdmin(){
+  const esAdmin = session.rol==='admin';
+  document.getElementById('whoBox').innerHTML = `${session.nombre} (${esAdmin?'admin':'supervisor'}) · <a href="#" onclick="logout()" style="color:#fff">salir</a>`;
+  if(!esAdmin && currentTab==='config') currentTab = 'dash'; // supervisor no puede entrar a Config
+  document.getElementById('app').innerHTML = `
+    <div class="tabs">
+      <div class="tab ${currentTab==='dash'?'active':''}" onclick="setTab('dash')">Dashboard</div>
+      <div class="tab ${currentTab==='ranking'?'active':''}" onclick="setTab('ranking')">Ranking</div>
+      <div class="tab ${currentTab==='transportistas'?'active':''}" onclick="setTab('transportistas')">Transportistas</div>
+      <div class="tab ${currentTab==='importar'?'active':''}" onclick="setTab('importar')">Importar guías</div>
+      ${esAdmin ? `<div class="tab ${currentTab==='usuarios'?'active':''}" onclick="setTab('usuarios')">Usuarios</div>` : ''}
+      ${esAdmin ? `<div class="tab ${currentTab==='config'?'active':''}" onclick="setTab('config')">Config</div>` : ''}
+      <div class="tab" onclick="actualizarDatos()" style="flex:0 0 auto;padding-left:14px;padding-right:14px;">🔄</div>
+    </div>
+    <div id="adminBody"></div>
+  `;
+  const body = document.getElementById('adminBody');
+  if(currentTab==='dash') body.innerHTML = tplDashboard();
+  if(currentTab==='ranking') body.innerHTML = tplRanking();
+  if(currentTab==='transportistas') body.innerHTML = tplTransportistas();
+  if(currentTab==='importar'){ body.innerHTML = tplImportar(); wireImportar(); }
+  if(currentTab==='usuarios' && esAdmin) body.innerHTML = tplUsuarios();
+  if(currentTab==='config' && esAdmin){ body.innerHTML = tplConfig(); wireConfig(); }
+}
+
+function tplUsuarios(){
+  return `<div class="card">
+    <h2>Usuarios del sistema (${usuarios.length})</h2>
+    <p class="muted">Tú (admin) entras con <b>admin / petroflex1726</b> — esa cuenta no aparece aquí, es fija. Todos los demás usuarios (transportistas y supervisor) los creas, bloqueas o eliminas tú desde esta pantalla.</p>
+    <button class="btn-primary btn-sm" onclick="abrirModalUsuario(-1)">+ Crear usuario</button>
+  </div>
+
+  <div class="card">
+    <h2>Carga masiva desde Excel</h2>
+    <p class="muted">Columnas: <b>usuario, clave, rol</b> (transportista/supervisor), y según el rol: <b>rut_empresa, nombre_empresa, nombre_chofer, rut_chofer</b> (transportista) o <b>nombre_mostrar</b> (supervisor). Si el usuario ya existe, se actualiza; si no, se crea. No borra a nadie.</p>
+    <input type="file" id="importUsuariosFile" accept=".xlsx,.xls,.csv">
+    <button class="btn-primary" style="margin-top:8px;" onclick="procesarImportUsuarios()">Importar usuarios</button>
+    <div id="importUsuariosStatus" class="ocr-box" style="display:none;"></div>
+  </div>
+
+  <div class="card">
+    ${usuarios.length ? `
+    <table style="margin-top:10px;">
+      <tr><th>Usuario</th><th>Rol</th><th>RUT Empresa</th><th>Nombre</th><th>Estado</th><th></th></tr>
+      ${usuarios.map((u,i)=>`
+        <tr>
+          <td>${u.username}</td>
+          <td>${u.rol}</td>
+          <td>${u.rutEmpresa||'-'}</td>
+          <td>${u.rol==='transportista'?u.nombreChofer:(u.nombreDisplay||'-')}</td>
+          <td><span class="badge ${u.bloqueado?'badge-pend':'badge-ok'}">${u.bloqueado?'Bloqueado':'Activo'}</span></td>
+          <td>
+            <a href="#" onclick="abrirModalUsuario(${i});return false;">✏️</a>
+            <a href="#" onclick="toggleBloqueo(${i});return false;">${u.bloqueado?'🔓':'🔒'}</a>
+            <a href="#" onclick="eliminarUsuario(${i});return false;" style="color:var(--rojo);">✕</a>
+          </td>
+        </tr>`).join('')}
+    </table>` : `<p class="muted">Aún no creas usuarios.</p>`}
+  </div>
+
+  <div id="usuarioModalBg" class="modal-bg">
+    <div class="modal">
+      <button class="close-x" onclick="cerrarModalUsuario()">✕</button>
+      <h2 id="usuarioModalTitulo" style="color:var(--azul);font-size:15px;">Usuario</h2>
+      <input type="hidden" id="usuarioIdx">
+      <label>Rol</label>
+      <select id="uRol" onchange="onRolUsuarioChange()">
+        <option value="transportista">Transportista</option>
+        <option value="supervisor">Supervisor</option>
+      </select>
+      <label>Usuario (login)</label><input id="uUsername" placeholder="ej: jperez">
+      <label>Contraseña</label>
+      <div style="position:relative;">
+        <input id="uPassword" placeholder="Defínela tú" type="password" style="padding-right:38px;">
+        <span onclick="togglePassword('uPassword', this)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;">👁️</span>
+      </div>
+      <div id="uCamposTransportista">
+        <label>RUT Empresa (transportista)</label><input id="uRutEmpresa" placeholder="ej: 76182895-9">
+        <label>Nombre empresa</label><input id="uNombreEmpresa">
+        <label>Nombre del chofer (debe calzar con "Retirado Por")</label><input id="uNombreChofer">
+        <label>Ced. Identidad del chofer</label><input id="uRutChofer">
+      </div>
+      <div id="uCamposSupervisor" style="display:none;">
+        <label>Nombre a mostrar</label><input id="uNombreDisplay" placeholder="ej: Pedro (Supervisor)">
+      </div>
+      <button class="btn-primary" onclick="guardarUsuario()">Guardar</button>
+    </div>
+  </div>`;
+}
+function onRolUsuarioChange(){
+  const rol = document.getElementById('uRol').value;
+  document.getElementById('uCamposTransportista').style.display = rol==='transportista' ? 'block' : 'none';
+  document.getElementById('uCamposSupervisor').style.display = rol==='supervisor' ? 'block' : 'none';
+}
+function abrirModalUsuario(idx){
+  const u = idx>=0 ? usuarios[idx] : { rol:'transportista', username:'', password:'', rutEmpresa:'', nombreEmpresa:'', nombreChofer:'', rutChofer:'', nombreDisplay:'' };
+  document.getElementById('usuarioIdx').value = idx;
+  document.getElementById('usuarioModalTitulo').textContent = idx>=0 ? 'Editar usuario' : 'Crear usuario';
+  document.getElementById('uRol').value = u.rol;
+  document.getElementById('uUsername').value = u.username;
+  document.getElementById('uPassword').value = u.password;
+  document.getElementById('uRutEmpresa').value = u.rutEmpresa||'';
+  document.getElementById('uNombreEmpresa').value = u.nombreEmpresa||'';
+  document.getElementById('uNombreChofer').value = u.nombreChofer||'';
+  document.getElementById('uRutChofer').value = u.rutChofer||'';
+  document.getElementById('uNombreDisplay').value = u.nombreDisplay||'';
+  onRolUsuarioChange();
+  document.getElementById('usuarioModalBg').classList.add('show');
+}
+function cerrarModalUsuario(){ document.getElementById('usuarioModalBg').classList.remove('show'); }
+async function procesarImportUsuarios(){
+  if(session.rol!=='admin') return toast('Solo el administrador puede gestionar usuarios');
+  const file = document.getElementById('importUsuariosFile').files[0];
+  if(!file) return toast('Elige un archivo primero');
+  const box = document.getElementById('importUsuariosStatus');
+  box.style.display = 'block'; box.innerHTML = '⏳ Preparando lector de Excel...';
+  try{ await cargarXLSX(); }catch(e){ box.innerHTML = '⚠️ ' + e.message; return; }
+  box.innerHTML = '⏳ Procesando...';
+  const reader = new FileReader();
+  reader.onload = async (e)=>{
+    try{
+      const wb = XLSX.read(e.target.result, { type:'binary' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval:'' });
+      const norm = (obj, keys)=>{ for(const k of Object.keys(obj)){ if(keys.includes(k.toLowerCase().trim().replace(/\s+/g,'_'))) return String(obj[k]).trim(); } return ''; };
+
+      const nuevos = [];
+      const errores = [];
+      rows.forEach((r,i)=>{
+        const username = norm(r,['usuario','username','login']);
+        const password = norm(r,['clave','password','contraseña','contrasena']);
+        let rol = norm(r,['rol','role']).toLowerCase();
+        if(!username || !password){ errores.push(`Fila ${i+2}: falta usuario o clave`); return; }
+        if(rol!=='transportista' && rol!=='supervisor'){ errores.push(`Fila ${i+2} (${username}): rol debe ser "transportista" o "supervisor"`); return; }
+        if(username===ADMIN_USER.username){ errores.push(`Fila ${i+2}: "admin" está reservado`); return; }
+        nuevos.push({
+          rol, username, password, bloqueado:false,
+          rutEmpresa: norm(r,['rut_empresa','rutempresa']),
+          nombreEmpresa: norm(r,['nombre_empresa','nombreempresa','empresa']),
+          nombreChofer: norm(r,['nombre_chofer','nombrechofer','chofer']),
+          rutChofer: norm(r,['rut_chofer','rutchofer','ced_identidad','cedidentidad','cedula']),
+          nombreDisplay: norm(r,['nombre_mostrar','nombremostrar','nombre']),
+        });
+      });
+
+      if(!nuevos.length){ box.innerHTML = '⚠️ No se encontró ninguna fila válida.' + (errores.length ? '<br>'+errores.join('<br>') : ''); return; }
+
+      box.innerHTML = `⏳ Guardando ${nuevos.length} usuarios...`;
+      const res = await dbBatchSet('usuarios', nuevos.map(u=>({ id:u.username, data:u })));
+      if(res.ok){
+        nuevos.forEach(u=>{
+          const idx = usuarios.findIndex(x=>x.username===u.username);
+          if(idx>=0) usuarios[idx] = u; else usuarios.push(u);
+        });
+        box.innerHTML = `✅ ${nuevos.length} usuarios cargados/actualizados.` + (errores.length ? `<br>⚠️ ${errores.length} filas con problemas:<br>${errores.join('<br>')}` : '');
+      } else {
+        box.innerHTML = '⚠️ No se pudo guardar en la nube: ' + res.motivo;
+      }
+      renderAdmin();
+    }catch(err){
+      box.innerHTML = '⚠️ Error leyendo el archivo: ' + err.message;
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+async function guardarUsuario(){
+  if(session.rol!=='admin') return toast('Solo el administrador puede gestionar usuarios');
+  const idx = parseInt(document.getElementById('usuarioIdx').value);
+  const rol = document.getElementById('uRol').value;
+  const username = document.getElementById('uUsername').value.trim();
+  const password = document.getElementById('uPassword').value;
+  if(!username || !password) return toast('Usuario y contraseña son obligatorios');
+  if(username===ADMIN_USER.username) return toast('Ese nombre de usuario está reservado');
+  const choque = usuarios.some((u,i)=> u.username===username && i!==idx);
+  if(choque) return toast('Ese nombre de usuario ya existe');
+
+  const oldUsername = idx>=0 ? usuarios[idx].username : null;
+  const registro = {
+    rol, username, password, bloqueado: idx>=0 ? usuarios[idx].bloqueado : false,
+    rutEmpresa: document.getElementById('uRutEmpresa').value.trim(),
+    nombreEmpresa: document.getElementById('uNombreEmpresa').value.trim(),
+    nombreChofer: document.getElementById('uNombreChofer').value.trim(),
+    rutChofer: document.getElementById('uRutChofer').value.trim(),
+    nombreDisplay: document.getElementById('uNombreDisplay').value.trim(),
+  };
+  if(idx>=0) usuarios[idx] = registro; else usuarios.push(registro);
+  const res = await dbSaveUsuario(registro, oldUsername);
+  cerrarModalUsuario();
+  toast(res.ok ? 'Usuario guardado' : '⚠️ No se guardó en la nube: ' + res.motivo + '. Quedó solo en este dispositivo.');
+  renderAdmin();
+}
+async function toggleBloqueo(idx){
+  if(session.rol!=='admin') return toast('Solo el administrador puede gestionar usuarios');
+  usuarios[idx].bloqueado = !usuarios[idx].bloqueado;
+  const res = await dbSaveUsuario(usuarios[idx]);
+  if(!res.ok) toast('⚠️ No se guardó en la nube: ' + res.motivo);
+  renderAdmin();
+}
+async function eliminarUsuario(idx){
+  if(session.rol!=='admin') return toast('Solo el administrador puede gestionar usuarios');
+  const username = usuarios[idx].username;
+  usuarios.splice(idx,1);
+  const res = await dbDeleteUsuario(username);
+  if(!res.ok) toast('⚠️ No se guardó en la nube: ' + res.motivo);
+  renderAdmin();
+}
+
+function tplTransportistas(){
+  const esAdmin = session.rol==='admin';
+  return `<div class="card">
+    <h2>Maestro de transportistas (solo visible aquí, en Admin${esAdmin?'':'/Supervisor'})</h2>
+    <p class="muted">Los transportistas nunca ven esta lista completa — solo eligen su nombre en un desplegable al iniciar sesión.</p>
+    ${esAdmin ? `
+    <input type="file" id="importMaestroFile" accept=".xlsx,.xls,.csv">
+    <button class="btn-primary" style="margin-top:8px;" onclick="procesarImportMaestro()">Importar maestro</button>
+    <div id="maestroImportStatus" class="ocr-box" style="display:none;"></div>
+    ` : `<p class="muted">Modo Supervisor: solo lectura, no puedes agregar, editar ni eliminar transportistas.</p>`}
+  </div>
+
+  <div class="card">
+    <h2>Empresas / choferes cargados (${maestroTransportistas.length})</h2>
+    ${esAdmin ? `<button class="btn-primary btn-sm" onclick="abrirModalChofer(-1)">+ Agregar chofer manualmente</button>` : ''}
+    ${maestroTransportistas.length ? `
+    <table style="margin-top:10px;">
+      <tr><th>Empresa</th><th>RUT Empresa</th><th>Chofer</th><th>Ced. Identidad</th><th>Patente</th><th>Celular</th>${esAdmin?'<th></th>':''}</tr>
+      ${maestroTransportistas.map((m,i)=>`
+        <tr>
+          <td>${m.nombreEmpresa}</td><td>${m.rutEmpresa}</td>
+          <td>${m.nombreChofer}</td><td>${m.rutChofer}</td>
+          <td>${m.patenteCamion}${m.patenteRampla?' / '+m.patenteRampla:''}</td>
+          <td>${m.celular}</td>
+          ${esAdmin ? `<td><a href="#" onclick="abrirModalChofer(${i});return false;">✏️</a> <a href="#" onclick="eliminarChofer(${i});return false;" style="color:var(--rojo);">✕</a></td>` : ''}
+        </tr>`).join('')}
+    </table>` : `<p class="muted">Aún no importas el maestro.</p>`}
+  </div>
+
+  ${esAdmin ? `
+  <div id="choferModalBg" class="modal-bg">
+    <div class="modal">
+      <button class="close-x" onclick="cerrarModalChofer()">✕</button>
+      <h2 id="choferModalTitulo" style="color:var(--azul);font-size:15px;">Chofer</h2>
+      <input type="hidden" id="choferIdx">
+      <label>Empresa</label><input id="mNombreEmpresa">
+      <label>RUT Empresa</label><input id="mRutEmpresa">
+      <label>Chofer (nombre corto, debe calzar con "Retirado Por")</label><input id="mNombreChofer">
+      <label>Nombre completo del chofer</label><input id="mNombreChoferCompleto">
+      <label>Ced. Identidad del chofer</label><input id="mRutChofer">
+      <label>Patente camión</label><input id="mPatenteCamion">
+      <label>Patente rampla (opcional)</label><input id="mPatenteRampla">
+      <label>Celular</label><input id="mCelular">
+      <button class="btn-primary" onclick="guardarChofer()">Guardar</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Nombres de "Retirado Por" sin chofer asociado</h2>
+    <p class="muted">Para crear el usuario/clave de un chofer, ve a la pestaña <b>Usuarios</b>. Esta lista solo te avisa qué nombres del Excel de guías no calzan todavía con ningún chofer del maestro (por tildes, mayúsculas, etc.).</p>
+    ${guiasAsignadasSinCoincidencia().length ? `
+      <div class="ocr-box">
+        ⚠️ ${guiasAsignadasSinCoincidencia().length} nombres sin calzar:
+        <br>${guiasAsignadasSinCoincidencia().slice(0,15).map(n=>`<span class="pill">${n}</span>`).join('')}
+      </div>
+    ` : `<p class="muted">Todos los nombres de "Retirado Por" calzan con algún chofer del maestro.</p>`}
+  </div>` : ''}`;
+}
+function regenerarListaLogin(){
+  const porRut = {};
+  maestroTransportistas.forEach(m=>{ if(m.rutChofer && m.nombreChofer) porRut[m.rutChofer] = m.nombreChofer; });
+  transportistasList = Object.keys(porRut).map(rut=>({ rut, nombre: porRut[rut] }));
+}
+
+function abrirModalChofer(idx){
+  document.getElementById('choferIdx').value = idx;
+  const m = idx>=0 ? maestroTransportistas[idx] : { nombreEmpresa:'', rutEmpresa:'', nombreChofer:'', nombreChoferCompleto:'', rutChofer:'', patenteCamion:'', patenteRampla:'', celular:'' };
+  document.getElementById('choferModalTitulo').textContent = idx>=0 ? 'Editar chofer' : 'Agregar chofer';
+  document.getElementById('mNombreEmpresa').value = m.nombreEmpresa;
+  document.getElementById('mRutEmpresa').value = m.rutEmpresa;
+  document.getElementById('mNombreChofer').value = m.nombreChofer;
+  document.getElementById('mNombreChoferCompleto').value = m.nombreChoferCompleto;
+  document.getElementById('mRutChofer').value = m.rutChofer;
+  document.getElementById('mPatenteCamion').value = m.patenteCamion;
+  document.getElementById('mPatenteRampla').value = m.patenteRampla;
+  document.getElementById('mCelular').value = m.celular;
+  document.getElementById('choferModalBg').classList.add('show');
+}
+function cerrarModalChofer(){ document.getElementById('choferModalBg').classList.remove('show'); }
+
+async function guardarChofer(){
+  if(session.rol!=='admin') return toast('Solo el administrador puede editar transportistas');
+  const idx = parseInt(document.getElementById('choferIdx').value);
+  const nombreChofer = document.getElementById('mNombreChofer').value.trim();
+  const rutChofer = document.getElementById('mRutChofer').value.trim();
+  if(!nombreChofer || !rutChofer) return toast('Chofer y Ced. Identidad son obligatorios');
+  const registro = {
+    nombreEmpresa: document.getElementById('mNombreEmpresa').value.trim(),
+    rutEmpresa: document.getElementById('mRutEmpresa').value.trim(),
+    nombreChofer, nombreChoferCompleto: document.getElementById('mNombreChoferCompleto').value.trim(),
+    rutChofer,
+    patenteCamion: document.getElementById('mPatenteCamion').value.trim(),
+    patenteRampla: document.getElementById('mPatenteRampla').value.trim(),
+    celular: document.getElementById('mCelular').value.trim(),
+  };
+  const docId = idx>=0 ? maestroTransportistas[idx]._docId : null;
+  if(idx>=0) maestroTransportistas[idx] = registro; else maestroTransportistas.push(registro);
+  regenerarListaLogin();
+  const res = await dbSaveChofer(registro, docId);
+  cerrarModalChofer();
+  toast(res.ok ? 'Guardado' : '⚠️ No se guardó en la nube: ' + res.motivo);
+  renderAdmin();
+}
+
+async function eliminarChofer(idx){
+  if(session.rol!=='admin') return toast('Solo el administrador puede editar transportistas');
+  const docId = maestroTransportistas[idx]._docId || maestroTransportistas[idx].rutChofer;
+  maestroTransportistas.splice(idx,1);
+  regenerarListaLogin();
+  const res = await dbDeleteChofer(docId);
+  if(!res.ok) toast('⚠️ No se guardó en la nube: ' + res.motivo);
+  renderAdmin();
+}
+function guiasAsignadasSinCoincidencia(){
+  const nombresGuias = [...new Set(guiasAsignadas.map(g=>g.transportista).filter(Boolean))];
+  const nombresLista = transportistasList.map(t=>t.nombre);
+  return nombresGuias.filter(n=>!nombresLista.includes(n));
+}
+async function procesarImportMaestro(){
+  if(session.rol!=='admin') return toast('Solo el administrador puede editar transportistas');
+  const file = document.getElementById('importMaestroFile').files[0];
+  if(!file) return toast('Elige un archivo primero');
+  const box = document.getElementById('maestroImportStatus');
+  box.style.display = 'block'; box.innerHTML = '⏳ Preparando lector de Excel...';
+  try{ await cargarXLSX(); }catch(e){ box.innerHTML = '⚠️ ' + e.message; return; }
+  box.innerHTML = '⏳ Procesando...';
+  const reader = new FileReader();
+  reader.onload = async (e)=>{
+    try{
+      const wb = XLSX.read(e.target.result, { type:'binary' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
+      const headerRowIdx = aoa.findIndex(r => r.some(c => String(c).toUpperCase().trim()==='RUT'));
+      if(headerRowIdx < 0){ box.innerHTML = '⚠️ No encontré una fila de encabezado con columna "RUT". Revisa el archivo.'; return; }
+      const header = aoa[headerRowIdx].map(h=>String(h).toUpperCase().trim());
+      const rutIdxs = header.map((h,i)=> h==='RUT'?i:-1).filter(i=>i>=0);
+      const idx = (name)=> header.indexOf(name);
+      const rutEmpresaIdx = rutIdxs[0];
+      const rutChoferIdx = rutIdxs[rutIdxs.length-1];
+      const idxNombreEmpresa = idx('NOMBRE');
+      const idxPatenteCamion = idx('PATENTE CAMION');
+      const idxCelular = idx('CELULAR');
+      const idxPatenteRampla = idx('PATENTE RAMPLA');
+      const idxNombreCorto = idx('NOMBRE CORTO CHOFER');
+      const idxNombreCompleto = idx('NOMBRE COMPLETO CHOFER');
+
+      const nuevos = [];
+      for(let i=headerRowIdx+1;i<aoa.length;i++){
+        const row = aoa[i];
+        if(!row || !row[rutChoferIdx]) continue;
+        nuevos.push({
+          rutEmpresa: String(row[rutEmpresaIdx]||'').trim(),
+          nombreEmpresa: String(row[idxNombreEmpresa]||'').trim(),
+          patenteCamion: String(row[idxPatenteCamion]||'').trim(),
+          celular: String(row[idxCelular]||'').trim(),
+          patenteRampla: String(row[idxPatenteRampla]||'').trim(),
+          nombreChofer: String(row[idxNombreCorto]||'').trim(),
+          nombreChoferCompleto: String(row[idxNombreCompleto]||'').trim(),
+          rutChofer: String(row[rutChoferIdx]||'').trim(),
+        });
+      }
+      // reemplaza el maestro completo con lo recién importado (evita duplicar si se reimporta)
+      maestroTransportistas = nuevos;
+      regenerarListaLogin();
+      const res = await dbReplaceCollection('maestro', nuevos.map(m=>({ id:m.rutChofer, data:m })));
+      box.innerHTML = res.ok
+        ? `✅ Importados ${nuevos.length} choferes de ${new Set(nuevos.map(n=>n.rutEmpresa)).size} empresas. Lista de login regenerada.`
+        : `⚠️ Se procesó el archivo pero no se pudo guardar en la nube: ${res.motivo}. Quedó solo en este dispositivo.`;
+      renderAdmin();
+    }catch(err){
+      box.innerHTML = '⚠️ Error leyendo el archivo: ' + err.message;
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+function fechaLocalStr(d){
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function tplDashboard(){
+  const transportistasUnicos = [...new Set(guiasAsignadas.map(g=>g.transportista).filter(Boolean))].sort();
+  const mesesUnicos = [...new Set(guiasAsignadas.map(g=>(g.fecha||'').slice(0,7)).filter(Boolean))].sort().reverse();
+  const NOMBRES_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const fmtMes = (m)=>{ const [y,mm] = m.split('-'); return `${NOMBRES_MES[parseInt(mm,10)-1]} ${y}`; };
+
+  const pasaBusqueda = (guia, nv)=>{
+    if(!filtros.busqueda) return true;
+    const b = filtros.busqueda.toLowerCase();
+    return String(guia).toLowerCase().includes(b) || String(nv).toLowerCase().includes(b);
+  };
+  const pasaFiltro = (g)=>{
+    if(filtros.transportista && g.transportista !== filtros.transportista) return false;
+    if(filtros.cliente && !(g.cliente||'').toLowerCase().includes(filtros.cliente.toLowerCase())) return false;
+    if(filtros.mes && !(g.fecha||'').startsWith(filtros.mes)) return false;
+    if(!pasaBusqueda(g.guia, g.nv)) return false;
+    return true;
+  };
+  const pasaFiltroEntrega = (e)=>{
+    if(filtros.transportista && e.transportista !== filtros.transportista) return false;
+    if(filtros.cliente && !(e.cliente||'').toLowerCase().includes(filtros.cliente.toLowerCase())) return false;
+    if(filtros.mes && !e.fecha.startsWith(filtros.mes)) return false;
+    if(!pasaBusqueda(e.guia, e.nv)) return false;
+    return true;
+  };
+
+  const pendientes = guiasAsignadas.filter(g=>!entregas.some(e=>e.guia===g.guia)).filter(pasaFiltro);
+  const entregadas = entregas.slice().filter(pasaFiltroEntrega).sort((a,b)=> new Date(b.fecha)-new Date(a.fecha));
+  const hayFiltrosActivos = filtros.transportista||filtros.cliente||filtros.mes||filtros.busqueda;
+  const hoyStr = fechaLocalStr(new Date());
+  const pendientesAMostrar = hayFiltrosActivos ? pendientes : pendientes.filter(g=>g.fecha===hoyStr);
+  const entregadasAMostrar = hayFiltrosActivos ? entregadas : entregadas.filter(e=>fechaLocalStr(new Date(e.fecha))===hoyStr);
+  const fmtFechaDisplay = (f)=>{
+    if(!f || !/^\d{4}-\d{2}-\d{2}$/.test(f)) return f||'-';
+    const [y,m,d] = f.split('-');
+    return `${d}/${m}/${y}`;
+  };
+
+  return `
+    <div class="card">
+      <h2>Resumen</h2>
+      <div class="row">
+        <div class="pill">Entregadas: <b>${entregadas.length}</b></div>
+        <div class="pill">Pendientes de recepción: <b>${pendientes.length}</b></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>🔍 Filtros</h2>
+      <label>Buscar por N° Guía o N° NV</label>
+      <input id="fBusqueda" placeholder="Escribe un número" value="${filtros.busqueda||''}" oninput="aplicarFiltros()">
+      <label style="margin-top:10px;">Buscar por Cliente</label>
+      <input id="fCliente" placeholder="Escribe parte del nombre" value="${filtros.cliente}" oninput="aplicarFiltros()">
+      <div class="row" style="margin-top:10px;">
+        <div>
+          <label>Transportista</label>
+          <select id="fTransportista" onchange="aplicarFiltros()">
+            <option value="">— Todos —</option>
+            ${transportistasUnicos.map(t=>`<option value="${t}" ${filtros.transportista===t?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label>Mes de la guía</label>
+          <select id="fMes" onchange="aplicarFiltros()">
+            <option value="">— Todos —</option>
+            ${mesesUnicos.map(m=>`<option value="${m}" ${filtros.mes===m?'selected':''}>${fmtMes(m)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        ${hayFiltrosActivos ? `<button class="btn-secondary btn-sm" onclick="limpiarFiltros()">✕ Limpiar filtros</button>` : ''}
+        <button class="btn-secondary btn-sm" onclick="exportarExcel()">⬇️ Exportar Excel (respeta filtros)</button>
+      </div>
+      <button class="btn-secondary btn-sm" style="margin-top:8px;" onclick="descargarFotos()">🖼️ Descargar fotos a una carpeta (respeta filtros)</button>
+      <button class="btn-secondary btn-sm" style="margin-top:8px;" onclick="cambiarCarpetaDestino()">📁 Elegir/cambiar carpeta de destino</button>
+      <div id="descargaFotosStatus" class="ocr-box" style="display:none;"></div>
+    </div>
+    <div class="card">
+      <h2>Entregas registradas — ${entregadasAMostrar.length}${hayFiltrosActivos?'':' (hoy)'}</h2>
+      ${!hayFiltrosActivos ? `<p class="muted">Mostrando solo las entregas de hoy (${entregadas.length} en total). Usa los filtros de arriba para buscar entregas de días anteriores.</p>` : ''}
+      <table><tr><th>Foto</th><th>NV</th><th>Guía</th><th>Transportista</th><th>Fecha</th></tr>
+        ${entregadasAMostrar.slice(0,25).map(e=>`
+          <tr>
+            <td><img class="thumb" src="${e.fotoUrl}" onclick="openFotoModal('${e.fotoUrl.replace(/'/g,"\\'")}')"></td>
+            <td>${e.nv}</td><td>${e.guia}</td><td>${e.transportista}</td>
+            <td>${new Date(e.fecha).toLocaleString('es-CL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</td>
+          </tr>`).join('')}
+      </table>
+      ${entregadasAMostrar.length===0 ? `<p class="muted">${hayFiltrosActivos ? 'No hay entregas con estos filtros.' : 'No hay entregas registradas hoy.'}</p>` : ''}
+      ${entregadasAMostrar.length>25 ? `<p class="muted">Mostrando las primeras 25 de ${entregadasAMostrar.length}. Usa los filtros para acotar, o exporta a Excel para verlas todas.</p>` : ''}
+    </div>
+    <div class="card">
+      <h2>Guías pendientes de recepción — ${pendientesAMostrar.length}${hayFiltrosActivos?'':' (hoy)'}</h2>
+      ${!hayFiltrosActivos ? `<p class="muted">Mostrando solo las guías de hoy sin recepcionar (${pendientes.length} pendientes en total). Usa los filtros de arriba para buscar en días anteriores.</p>` : ''}
+      ${pendientesAMostrar.length ? `<table><tr><th>Fecha</th><th>Guía</th><th>NV</th><th>Transportista</th><th>Cliente</th></tr>
+        ${pendientesAMostrar.slice(0,200).map(g=>`<tr><td>${fmtFechaDisplay(g.fecha)}</td><td>${g.guia}</td><td>${g.nv}</td><td>${g.transportista||'<span class="muted">sin asignar</span>'}</td><td>${g.cliente||'-'}</td></tr>`).join('')}
+      </table>
+      ${pendientesAMostrar.length>200 ? `<p class="muted">Mostrando las primeras 200 de ${pendientesAMostrar.length}. Usa los filtros para acotar.</p>` : ''}
+      ` : `<p class="muted">${hayFiltrosActivos ? 'No hay guías pendientes con estos filtros.' : 'No hay guías pendientes de hoy.'}</p>`}
+    </div>
+  `;
+}
+function sanitizeNombreArchivo(s){
+  return String(s).replace(/[\\/:*?"<>|]/g, '-').trim() || 'sinnumero';
+}
+function extensionDesde(urlOdataUri, contentType){
+  if(contentType && contentType.includes('/')) return contentType.split('/')[1].split(';')[0];
+  const m = /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.exec(urlOdataUri||'');
+  if(m) return m[1].toLowerCase();
+  if((urlOdataUri||'').startsWith('data:image/')) return urlOdataUri.slice(11, urlOdataUri.indexOf(';'));
+  return 'jpg';
+}
+async function fotoABlob(e){
+  if(e.fotoLocalSinNube && e.fotoUrl.startsWith('data:')){
+    const r = await fetch(e.fotoUrl);
+    return await r.blob();
+  }
+  const r = await fetch(e.fotoUrl);
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return await r.blob();
+}
+
+/* Recordar la carpeta de destino elegida (para no tener que navegarla cada vez) */
+function idbOpen(){
+  return new Promise((resolve,reject)=>{
+    const req = indexedDB.open('cd_handles', 1);
+    req.onupgradeneeded = ()=> req.result.createObjectStore('handles');
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+async function idbGet(key){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction('handles','readonly');
+    const req = tx.objectStore('handles').get(key);
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+async function idbSet(key,val){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction('handles','readwrite');
+    tx.objectStore('handles').put(val,key);
+    tx.oncomplete = ()=>resolve();
+    tx.onerror = ()=>reject(tx.error);
+  });
+}
+async function idbDelete(key){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction('handles','readwrite');
+    tx.objectStore('handles').delete(key);
+    tx.oncomplete = ()=>resolve();
+    tx.onerror = ()=>reject(tx.error);
+  });
+}
+async function obtenerCarpetaDestino(forzarSeleccion){
+  if(!forzarSeleccion){
+    try{
+      const guardado = await idbGet('carpetaDestinoGuias');
+      if(guardado){
+        let permiso = await guardado.queryPermission({ mode:'readwrite' });
+        if(permiso!=='granted') permiso = await guardado.requestPermission({ mode:'readwrite' });
+        if(permiso==='granted') return guardado;
+      }
+    }catch(e){ /* carpeta ya no existe o no soportado, se pide de nuevo abajo */ }
+  }
+  const handle = await window.showDirectoryPicker({ id:'carpetaGuias' });
+  await idbSet('carpetaDestinoGuias', handle);
+  return handle;
+}
+async function cambiarCarpetaDestino(){
+  try{
+    await obtenerCarpetaDestino(true);
+    toast('Carpeta de destino actualizada — se usará desde ahora en cada descarga.');
+  }catch(e){ /* canceló el selector */ }
+}
+
+async function descargarFotos(){
+  const filtradas = entregas.filter(e=>{
+    if(filtros.transportista && e.transportista !== filtros.transportista) return false;
+    if(filtros.cliente && !(e.cliente||'').toLowerCase().includes(filtros.cliente.toLowerCase())) return false;
+    if(filtros.mes && !e.fecha.startsWith(filtros.mes)) return false;
+    if(filtros.busqueda){
+      const b = filtros.busqueda.toLowerCase();
+      if(!String(e.guia).toLowerCase().includes(b) && !String(e.nv).toLowerCase().includes(b)) return false;
+    }
+    return true;
+  });
+  const box = document.getElementById('descargaFotosStatus');
+  box.style.display = 'block';
+  if(!filtradas.length){ box.innerHTML = '⚠️ No hay entregas con estos filtros.'; return; }
+
+  if(window.showDirectoryPicker){
+    let dirHandle;
+    try{ dirHandle = await obtenerCarpetaDestino(false); }
+    catch(e){ box.innerHTML = '⚠️ No se eligió ninguna carpeta.'; return; } // el usuario canceló el selector
+
+    let ok=0, fail=0;
+    for(let i=0;i<filtradas.length;i++){
+      const e = filtradas[i];
+      box.innerHTML = `⏳ Descargando foto ${i+1} de ${filtradas.length}...`;
+      try{
+        const blob = await fotoABlob(e);
+        const ext = extensionDesde(e.fotoUrl, blob.type);
+        const nombre = `NV_${sanitizeNombreArchivo(e.nv)}_Guia_${sanitizeNombreArchivo(e.guia)}.${ext}`;
+        const fileHandle = await dirHandle.getFileHandle(nombre, { create:true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        ok++;
+      }catch(err){ fail++; console.warn('No se pudo descargar foto de guía', e.guia, err); }
+    }
+    box.innerHTML = `✅ ${ok} fotos guardadas en la carpeta que elegiste${fail?`, ${fail} fallaron (revisa la consola)`:''}.`;
+    return;
+  }
+
+  // Fallback para navegadores sin File System Access API (Firefox, Safari, celular): arma un ZIP
+  box.innerHTML = '⏳ Tu navegador no permite elegir carpeta directo — preparando un ZIP para descargar...';
+  try{
+    if(!window.JSZip){
+      await new Promise((resolve,reject)=>{
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+        s.onload = resolve; s.onerror = ()=>reject(new Error('No se pudo cargar JSZip'));
+        document.head.appendChild(s);
+      });
+    }
+    const zip = new JSZip();
+    for(let i=0;i<filtradas.length;i++){
+      const e = filtradas[i];
+      box.innerHTML = `⏳ Agregando foto ${i+1} de ${filtradas.length} al ZIP...`;
+      try{
+        const blob = await fotoABlob(e);
+        const ext = extensionDesde(e.fotoUrl, blob.type);
+        const nombre = `NV_${sanitizeNombreArchivo(e.nv)}_Guia_${sanitizeNombreArchivo(e.guia)}.${ext}`;
+        zip.file(nombre, blob);
+      }catch(err){ console.warn('No se pudo agregar foto de guía', e.guia, err); }
+    }
+    box.innerHTML = '⏳ Generando el archivo ZIP...';
+    const contenido = await zip.generateAsync({ type:'blob' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(contenido);
+    a.download = `fotos_despachos_${new Date().toISOString().slice(0,10)}.zip`;
+    a.click();
+    box.innerHTML = `✅ ZIP descargado con ${filtradas.length} fotos. Descomprímelo en la carpeta que quieras.`;
+  }catch(err){
+    box.innerHTML = '⚠️ No se pudo generar el ZIP: ' + err.message;
+  }
+}
+
+function aplicarFiltros(){
+  filtros.transportista = document.getElementById('fTransportista').value;
+  filtros.mes = document.getElementById('fMes').value;
+  filtros.cliente = document.getElementById('fCliente').value;
+  filtros.busqueda = document.getElementById('fBusqueda').value;
+  document.getElementById('adminBody').innerHTML = tplDashboard();
+}
+function limpiarFiltros(){
+  filtros = { transportista:'', cliente:'', mes:'', busqueda:'' };
+  document.getElementById('adminBody').innerHTML = tplDashboard();
+}
+
+function tplRanking(){
+  const nombresOficiales = new Set(transportistasList.map(t=>t.nombre));
+  const transportistas = [...new Set([...guiasAsignadas.map(g=>g.transportista), ...entregas.map(e=>e.transportista)])].filter(Boolean);
+
+  const calcFila = (t)=>{
+    const asignadas = guiasAsignadas.filter(g=>g.transportista===t).length;
+    const entregadasT = entregas.filter(e=>e.transportista===t).length;
+    const pct = asignadas>0 ? Math.min(100, Math.round(entregadasT/asignadas*100)) : (entregadasT>0 ? 100 : 0);
+    const rutInfo = transportistasList.find(x=>x.nombre===t);
+    return { t, rut: rutInfo ? rutInfo.rut : '', asignadas, entregadasT, pct };
+  };
+
+  const oficiales = transportistas.filter(t=>nombresOficiales.has(t)).map(calcFila).sort((a,b)=> b.pct-a.pct);
+  const ocasionales = transportistas.filter(t=>!nombresOficiales.has(t)).map(calcFila).sort((a,b)=> b.asignadas-a.asignadas);
+
+  const filaHtml = (f)=>`
+      <div class="rank-item">
+        <div>
+          <b>${f.t}</b> ${f.rut ? `<span class="muted">(Ced. Identidad: ${f.rut})</span>` : ''}<br>
+          <span class="muted">${f.entregadasT} de ${f.asignadas||f.entregadasT} guías con prueba de entrega</span>
+          <div class="bar"><div class="bar-fill" style="width:${f.pct}%;background:${f.pct<80?'#c0392b':'#1e8449'}"></div></div>
+        </div>
+        <div><span class="badge ${f.pct>=80?'badge-ok':'badge-pend'}">${f.pct}%</span></div>
+      </div>`;
+
+  return `<div class="card"><h2>Transportistas oficiales (${oficiales.length})</h2>
+    ${oficiales.length ? oficiales.map(filaHtml).join('') : `<p class="muted">Aún no hay datos de transportistas del maestro.</p>`}
+    <small class="hint">El % de cumplimiento se calcula sobre las guías que hayas importado como "asignadas" en la pestaña Importar. Úsalo como respaldo antes de aprobar el pago de fletes — el bloqueo del pago en sí se hace en tu sistema, no aquí.</small>
+  </div>
+  <div class="card"><h2>Retiros ocasionales / Retira Cliente (${ocasionales.length})</h2>
+    <p class="muted">Nombres que aparecen en "Retirado Por" pero no están en tu maestro de transportistas — típicamente clientes que retiran directo, una vez.</p>
+    ${ocasionales.length ? ocasionales.map(filaHtml).join('') : `<p class="muted">No hay retiros ocasionales registrados.</p>`}
+  </div>`;
+}
+
+function tplImportar(){
+  return `<div class="card">
+    <h2>Importar guías despachadas del día/semana</h2>
+    <p class="muted">Acepta tu Excel de consulta tal cual sale del sistema (columnas <b>Folio</b>, <b>nvnumero</b>, <b>nomaux</b>) o un Excel simple con <b>guia, nv, transportista, cliente</b>. Si no viene el transportista, la guía queda pendiente de asignar (se puede completar más adelante).</p>
+    <input type="file" id="importFile" accept=".xlsx,.xls,.csv">
+    <button class="btn-primary" onclick="procesarImport()">Cargar</button>
+    <p class="muted" style="margin-top:10px;">Guías cargadas actualmente: <b>${guiasAsignadas.length}</b>. ${guiasAsignadas.length ? `<a href="#" onclick="limpiarGuias();return false;">Vaciar lista</a>`:''}</p>
+  </div>`;
+}
+function wireImportar(){}
+async function limpiarGuias(){
+  const res = await dbClearCollection('guias');
+  guiasAsignadas=[];
+  localStorage.setItem('cd_guias_asignadas','[]');
+  if(!res.ok) toast('⚠️ No se pudo vaciar en la nube: ' + res.motivo);
+  renderAdmin();
+}
+
+async function procesarImport(){
+  const file = document.getElementById('importFile').files[0];
+  if(!file) return toast('Elige un archivo primero');
+  toast('Preparando lector de Excel...');
+  try{ await cargarXLSX(); }catch(e){ toast('⚠️ ' + e.message); return; }
+  const reader = new FileReader();
+  reader.onload = async (e)=>{
+    const wb = XLSX.read(e.target.result, { type:'binary', cellDates:true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval:'' });
+    const norm = (obj, keys)=>{ for(const k of Object.keys(obj)){ if(keys.includes(k.toLowerCase().trim())) return obj[k]; } return ''; };
+    const fmtFecha = (v)=>{
+      if(v instanceof Date && !isNaN(v)) return fechaLocalStr(v);
+      return String(v||'').trim();
+    };
+    const vistos = new Set();
+    const nuevas = [];
+    rows.forEach(r=>{
+      const guia = String(norm(r,['guia','guía','n° guia','n° guía','nguia','folio'])).trim();
+      if(!guia || vistos.has(guia)) return;
+      vistos.add(guia);
+      nuevas.push({
+        guia,
+        nv: String(norm(r,['nv','nota de venta','n° nv','n° venta','notaventa','nvnumero','nvnumero2'])).trim(),
+        transportista: String(norm(r,['retiradopor','transportista','chofer','conductor'])).trim(),
+        cliente: String(norm(r,['cliente','razon social','razón social','nomaux'])).trim(),
+        fecha: fmtFecha(norm(r,['fecha guia','fecha','fec despacho','fechaguia'])),
+      });
+    });
+    const existentes = new Set(guiasAsignadas.map(g=>g.guia));
+    const realmenteNuevas = nuevas.filter(g=>!existentes.has(g.guia));
+    guiasAsignadas = [...guiasAsignadas, ...realmenteNuevas];
+    toast(`Guardando ${realmenteNuevas.length} guías nuevas en la nube, un momento...`);
+    const res = await dbBatchSet('guias', realmenteNuevas.map(g=>({ id:g.guia, data:g })));
+    const sinTransportista = realmenteNuevas.filter(g=>!g.transportista).length;
+    const omitidas = nuevas.length - realmenteNuevas.length;
+    toast(res.ok
+      ? `${realmenteNuevas.length} guías nuevas agregadas${omitidas?` (${omitidas} ya existían, se omitieron)`:''}${sinTransportista ? ' — algunas sin transportista asignado' : ''}`
+      : `⚠️ No se pudieron guardar las guías nuevas en la nube: ${res.motivo}`);
+    renderAdmin();
+  };
+  reader.readAsBinaryString(file);
+}
+
+function tplConfig(){
+  return `<div class="card">
+    <h2>Configuración técnica</h2>
+    <p class="muted">✅ La base de datos (Firebase) ya está conectada — no necesitas configurar nada aquí para eso, solo para las fotos.</p>
+    <label>Cloudinary — Cloud name</label>
+    <input id="cfgCloud" value="${CONFIG.CLOUDINARY_CLOUD_NAME}" placeholder="ej: dxxxx">
+    <label>Cloudinary — Upload preset (unsigned)</label>
+    <input id="cfgPreset" value="${CONFIG.CLOUDINARY_UPLOAD_PRESET}">
+    <button class="btn-primary" onclick="guardarConfigUI()">Guardar configuración</button>
+    <small class="hint">Sin estos datos, las fotos de las guías se guardan directo en la base de datos en vez de en Cloudinary (funciona igual, pero pesa más). Recomendado dejarlos configurados.</small>
+  </div>`;
+}
+
+function wireConfig(){}
+async function guardarConfigUI(){
+  CONFIG.CLOUDINARY_CLOUD_NAME = document.getElementById('cfgCloud').value.trim();
+  CONFIG.CLOUDINARY_UPLOAD_PRESET = document.getElementById('cfgPreset').value.trim();
+  saveConfig();
+  const res = await dbGuardarConfigPublica();
+  toast(res.ok ? 'Configuración guardada y compartida con todos los dispositivos' : '⚠️ Se guardó solo en este dispositivo: ' + res.motivo);
+}
+
+async function exportarExcel(){
+  toast('Preparando lector de Excel...');
+  try{ await cargarXLSX(); }catch(e){ toast('⚠️ ' + e.message); return; }
+  const filtradas = entregas.filter(e=>{
+    if(filtros.transportista && e.transportista !== filtros.transportista) return false;
+    if(filtros.cliente && !(e.cliente||'').toLowerCase().includes(filtros.cliente.toLowerCase())) return false;
+    if(filtros.mes && !e.fecha.startsWith(filtros.mes)) return false;
+    return true;
+  });
+  const data = filtradas.map(e=>({
+    Fecha: new Date(e.fecha).toLocaleString('es-CL'),
+    Transportista: e.transportista,
+    'Ced. Identidad Transportista': e.transportistaRut || '',
+    'N° NV': e.nv,
+    'N° Guia': e.guia,
+    Cliente: e.cliente || '',
+    Comentario: e.comentario || '',
+    'Link Foto': e.fotoLocalSinNube ? '(guardada localmente, no en la nube)' : e.fotoUrl
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Entregas');
+  XLSX.writeFile(wb, `control_despachos_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+/* ============================================================
+   NAV / BOOT
+   ============================================================ */
+let guiasCargadas = false;
+
+async function asegurarGuiasParaTab(t){
+  const necesitaGuias = (session.rol==='admin' || session.rol==='supervisor') && (t==='dash' || t==='ranking') && !guiasCargadas;
+  if(necesitaGuias){
+    const body = document.getElementById('adminBody');
+    if(body) body.innerHTML = '<div class="card"><p class="muted">⏳ Cargando guías...</p></div>';
+    await dbLoadGuiasAll();
+    guiasCargadas = true;
+  }
+}
+
+async function setTab(t){
+  currentTab = t;
+  await asegurarGuiasParaTab(t);
+  boot(true);
+}
+
+async function actualizarDatos(){
+  const body = document.getElementById('adminBody');
+  if(body) body.innerHTML = '<div class="card"><p class="muted">⏳ Actualizando...</p></div>';
+  await Promise.all([dbLoadEntregas(), dbLoadUsuarios(), dbLoadMaestro()]);
+  regenerarListaLogin();
+  if(session.rol==='transportista') await dbLoadGuiasPorTransportista(session.nombre);
+  else { await dbLoadGuiasAll(); guiasCargadas = true; }
+  toast('Datos actualizados');
+  boot(true);
+}
+
+let datosLoginListos = false;
+let datosLoginPromise = null;
+
+async function boot(skipReload){
+  if(!session){
+    renderLogin(); // se muestra de inmediato, sin esperar red
+    if(!skipReload && !datosLoginPromise){
+      datosLoginPromise = authReady
+        .then(()=> Promise.all([dbLoadConfigPublica(), dbLoadUsuarios()]))
+        .then(()=>{ datosLoginListos = true; });
+    }
+    return;
+  }
+  await authReady;
+  if(!skipReload){
+    await Promise.all([dbLoadEntregas(), dbLoadUsuarios(), dbLoadMaestro()]);
+    regenerarListaLogin();
+    if(session.rol==='transportista') await dbLoadGuiasPorTransportista(session.nombre);
+  }
+  if(session.rol==='admin' || session.rol==='supervisor'){
+    if(currentTab==='nueva' || currentTab==='mis') currentTab = 'dash';
+    if(!skipReload) await asegurarGuiasParaTab(currentTab);
+    renderAdmin();
+  } else renderTransportista();
+}
+boot();
+</script>
+</body>
+</html>
