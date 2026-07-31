@@ -131,7 +131,8 @@ let usuarios = JSON.parse(localStorage.getItem('cd_usuarios_cache') || '[]'); //
 let pendingQueue = JSON.parse(localStorage.getItem('cd_pending_queue') || '[]'); // sin conexión
 let guiasAsignadas = JSON.parse(localStorage.getItem('cd_guias_asignadas') || '[]'); // import admin
 let currentTab = 'nueva';
-let filtros = { transportista:'', cliente:'', mes:'', busqueda:'' };
+let filtros = { transportista:'', cliente:'', mes:'', busqueda:'', mesRanking:'' };
+let panelAbierto = null; // null | 'recibidas' | 'pendientes'
 let capturedPhotoBase64 = null;
 let ocrSuggestions = { nv: [], guia: [] };
 
@@ -1027,8 +1028,12 @@ function tplDashboard(){
     <div class="card">
       <h2>Resumen</h2>
       <div class="row">
-        <div class="pill">Entregadas: <b>${entregadas.length}</b></div>
-        <div class="pill">Pendientes de recepción: <b>${pendientes.length}</b></div>
+        <div class="pill" style="cursor:pointer;background:${panelAbierto==='recibidas'?'var(--azul2)':'var(--celeste)'};color:${panelAbierto==='recibidas'?'#fff':'#111'};" onclick="togglePanel('recibidas')">
+          ✅ Recibidas: <b>${entregadas.length}</b> ${panelAbierto==='recibidas'?'▲':'▼'}
+        </div>
+        <div class="pill" style="cursor:pointer;background:${panelAbierto==='pendientes'?'var(--azul2)':'var(--celeste)'};color:${panelAbierto==='pendientes'?'#fff':'#111'};" onclick="togglePanel('pendientes')">
+          ⏳ Pendientes: <b>${pendientes.length}</b> ${panelAbierto==='pendientes'?'▲':'▼'}
+        </div>
       </div>
     </div>
     <div class="card">
@@ -1061,8 +1066,9 @@ function tplDashboard(){
       <button class="btn-secondary btn-sm" style="margin-top:8px;" onclick="cambiarCarpetaDestino()">📁 Elegir/cambiar carpeta de destino</button>
       <div id="descargaFotosStatus" class="ocr-box" style="display:none;"></div>
     </div>
+    ${panelAbierto==='recibidas' ? `
     <div class="card">
-      <h2>Entregas registradas — ${entregadasAMostrar.length}${hayFiltrosActivos?'':' (hoy)'}</h2>
+      <h2>✅ Entregas registradas — ${entregadasAMostrar.length}${hayFiltrosActivos?'':' (hoy)'}</h2>
       ${!hayFiltrosActivos ? `<p class="muted">Mostrando solo las entregas de hoy (${entregadas.length} en total). Usa los filtros de arriba para buscar entregas de días anteriores.</p>` : ''}
       <table><tr><th>Foto</th><th>NV</th><th>Guía</th><th>Transportista</th><th>Fecha</th></tr>
         ${entregadasAMostrar.slice(0,25).map(e=>`
@@ -1074,17 +1080,22 @@ function tplDashboard(){
       </table>
       ${entregadasAMostrar.length===0 ? `<p class="muted">${hayFiltrosActivos ? 'No hay entregas con estos filtros.' : 'No hay entregas registradas hoy.'}</p>` : ''}
       ${entregadasAMostrar.length>25 ? `<p class="muted">Mostrando las primeras 25 de ${entregadasAMostrar.length}. Usa los filtros para acotar, o exporta a Excel para verlas todas.</p>` : ''}
-    </div>
+    </div>` : ''}
+    ${panelAbierto==='pendientes' ? `
     <div class="card">
-      <h2>Guías pendientes de recepción — ${pendientesAMostrar.length}${hayFiltrosActivos?'':' (hoy)'}</h2>
+      <h2>⏳ Guías pendientes de recepción — ${pendientesAMostrar.length}${hayFiltrosActivos?'':' (hoy)'}</h2>
       ${!hayFiltrosActivos ? `<p class="muted">Mostrando solo las guías de hoy sin recepcionar (${pendientes.length} pendientes en total). Usa los filtros de arriba para buscar en días anteriores.</p>` : ''}
       ${pendientesAMostrar.length ? `<table><tr><th>Fecha</th><th>Guía</th><th>NV</th><th>Transportista</th><th>Cliente</th></tr>
         ${pendientesAMostrar.slice(0,200).map(g=>`<tr><td>${fmtFechaDisplay(g.fecha)}</td><td>${g.guia}</td><td>${g.nv}</td><td>${g.transportista||'<span class="muted">sin asignar</span>'}</td><td>${g.cliente||'-'}</td></tr>`).join('')}
       </table>
       ${pendientesAMostrar.length>200 ? `<p class="muted">Mostrando las primeras 200 de ${pendientesAMostrar.length}. Usa los filtros para acotar.</p>` : ''}
       ` : `<p class="muted">${hayFiltrosActivos ? 'No hay guías pendientes con estos filtros.' : 'No hay guías pendientes de hoy.'}</p>`}
-    </div>
+    </div>` : ''}
   `;
+}
+function togglePanel(nombre){
+  panelAbierto = (panelAbierto===nombre) ? null : nombre;
+  document.getElementById('adminBody').innerHTML = tplDashboard();
 }
 function sanitizeNombreArchivo(s){
   return String(s).replace(/[\\/:*?"<>|]/g, '-').trim() || 'sinnumero';
@@ -1242,7 +1253,20 @@ function aplicarFiltros(){
   filtros.mes = document.getElementById('fMes').value;
   filtros.cliente = document.getElementById('fCliente').value;
   filtros.busqueda = document.getElementById('fBusqueda').value;
+
+  const activo = document.activeElement;
+  const idActivo = activo && activo.id;
+  const posCursor = activo && typeof activo.selectionStart==='number' ? activo.selectionStart : null;
+
   document.getElementById('adminBody').innerHTML = tplDashboard();
+
+  if(idActivo){
+    const el = document.getElementById(idActivo);
+    if(el){
+      el.focus();
+      if(posCursor!==null && el.setSelectionRange) el.setSelectionRange(posCursor, posCursor);
+    }
+  }
 }
 function limpiarFiltros(){
   filtros = { transportista:'', cliente:'', mes:'', busqueda:'' };
@@ -1253,35 +1277,56 @@ function tplRanking(){
   const nombresOficiales = new Set(transportistasList.map(t=>t.nombre));
   const transportistas = [...new Set([...guiasAsignadas.map(g=>g.transportista), ...entregas.map(e=>e.transportista)])].filter(Boolean);
 
+  const NOMBRES_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const fmtMes = (m)=>{ const [y,mm] = m.split('-'); return `${NOMBRES_MES[parseInt(mm,10)-1]} ${y}`; };
+  const mesesUnicos = [...new Set(guiasAsignadas.map(g=>(g.fecha||'').slice(0,7)).filter(Boolean))].sort().reverse();
+  const mesActual = fechaLocalStr(new Date()).slice(0,7);
+  const mesRanking = filtros.mesRanking || mesActual;
+
   const calcFila = (t)=>{
-    const asignadas = guiasAsignadas.filter(g=>g.transportista===t).length;
-    const entregadasT = entregas.filter(e=>e.transportista===t).length;
-    const pct = asignadas>0 ? Math.min(100, Math.round(entregadasT/asignadas*100)) : (entregadasT>0 ? 100 : 0);
+    const asignadasPeriodo = guiasAsignadas.filter(g=>g.transportista===t && (g.fecha||'').startsWith(mesRanking));
+    const entregadasCount = asignadasPeriodo.filter(g=>entregas.some(e=>e.guia===g.guia)).length;
+    const asignadas = asignadasPeriodo.length;
+    const pct = asignadas>0 ? Math.min(100, Math.round(entregadasCount/asignadas*100)) : 0;
     const rutInfo = transportistasList.find(x=>x.nombre===t);
-    return { t, rut: rutInfo ? rutInfo.rut : '', asignadas, entregadasT, pct };
+    return { t, rut: rutInfo ? rutInfo.rut : '', asignadas, entregadasT: entregadasCount, pct };
   };
 
-  const oficiales = transportistas.filter(t=>nombresOficiales.has(t)).map(calcFila).sort((a,b)=> b.pct-a.pct);
-  const ocasionales = transportistas.filter(t=>!nombresOficiales.has(t)).map(calcFila).sort((a,b)=> b.asignadas-a.asignadas);
+  const oficiales = transportistas.filter(t=>nombresOficiales.has(t)).map(calcFila).filter(f=>f.asignadas>0).sort((a,b)=> b.pct-a.pct);
+  const oficialesSinGuiasEsteMes = transportistas.filter(t=>nombresOficiales.has(t)).map(calcFila).filter(f=>f.asignadas===0);
+  const ocasionales = transportistas.filter(t=>!nombresOficiales.has(t)).map(calcFila).filter(f=>f.asignadas>0).sort((a,b)=> b.asignadas-a.asignadas);
 
   const filaHtml = (f)=>`
       <div class="rank-item">
         <div>
           <b>${f.t}</b> ${f.rut ? `<span class="muted">(Ced. Identidad: ${f.rut})</span>` : ''}<br>
-          <span class="muted">${f.entregadasT} de ${f.asignadas||f.entregadasT} guías con prueba de entrega</span>
+          <span class="muted">${f.entregadasT} de ${f.asignadas} guías recepcionadas</span>
           <div class="bar"><div class="bar-fill" style="width:${f.pct}%;background:${f.pct<80?'#c0392b':'#1e8449'}"></div></div>
         </div>
         <div><span class="badge ${f.pct>=80?'badge-ok':'badge-pend'}">${f.pct}%</span></div>
       </div>`;
 
-  return `<div class="card"><h2>Transportistas oficiales (${oficiales.length})</h2>
-    ${oficiales.length ? oficiales.map(filaHtml).join('') : `<p class="muted">Aún no hay datos de transportistas del maestro.</p>`}
-    <small class="hint">El % de cumplimiento se calcula sobre las guías que hayas importado como "asignadas" en la pestaña Importar. Úsalo como respaldo antes de aprobar el pago de fletes — el bloqueo del pago en sí se hace en tu sistema, no aquí.</small>
+  return `<div class="card">
+    <h2>Ranking de cumplimiento</h2>
+    <label>Período</label>
+    <select id="fMesRanking" onchange="cambiarMesRanking()">
+      ${!mesesUnicos.includes(mesActual) ? `<option value="${mesActual}" ${mesRanking===mesActual?'selected':''}>${fmtMes(mesActual)} (sin guías aún)</option>` : ''}
+      ${mesesUnicos.map(m=>`<option value="${m}" ${mesRanking===m?'selected':''}>${fmtMes(m)}</option>`).join('')}
+    </select>
+    <small class="hint">Compara, para el mes elegido, cuántas guías le tocaron a cada transportista v/s cuántas de esas ya recepcionó — así el % refleja el desempeño real del período, no el historial completo.</small>
+  </div>
+  <div class="card"><h2>Transportistas oficiales (${oficiales.length})</h2>
+    ${oficiales.length ? oficiales.map(filaHtml).join('') : `<p class="muted">Nadie tiene guías asignadas en ${fmtMes(mesRanking)}.</p>`}
+    ${oficialesSinGuiasEsteMes.length ? `<p class="muted" style="margin-top:10px;">Sin guías asignadas este período: ${oficialesSinGuiasEsteMes.map(f=>f.t).join(', ')}</p>` : ''}
   </div>
   <div class="card"><h2>Retiros ocasionales / Retira Cliente (${ocasionales.length})</h2>
     <p class="muted">Nombres que aparecen en "Retirado Por" pero no están en tu maestro de transportistas — típicamente clientes que retiran directo, una vez.</p>
-    ${ocasionales.length ? ocasionales.map(filaHtml).join('') : `<p class="muted">No hay retiros ocasionales registrados.</p>`}
+    ${ocasionales.length ? ocasionales.map(filaHtml).join('') : `<p class="muted">No hay retiros ocasionales en ${fmtMes(mesRanking)}.</p>`}
   </div>`;
+}
+function cambiarMesRanking(){
+  filtros.mesRanking = document.getElementById('fMesRanking').value;
+  document.getElementById('adminBody').innerHTML = tplRanking();
 }
 
 function tplImportar(){
