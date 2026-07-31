@@ -3,12 +3,18 @@
 // hay que cambiar CACHE_VERSION (ej. v2, v3...) para que a todos los
 // celulares/computadores les llegue la actualización sin que tengan que
 // borrar datos del navegador a mano.
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v4';
 const CACHE_NAME = `control-despachos-${CACHE_VERSION}`;
 
 const APP_SHELL = [
   './',
   './index.html',
+  './manifest.json',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-512-maskable.png',
+  './icons/icon-180.png',
+  './icons/icon-32.png',
   'https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js',
   'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js',
   'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js'
