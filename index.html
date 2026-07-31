@@ -1505,6 +1505,18 @@ async function boot(skipReload){
   } else renderTransportista();
 }
 boot();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(e=>console.warn('No se pudo registrar el Service Worker', e));
+  });
+  let recargando = false;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    if(recargando) return;
+    recargando = true;
+    window.location.reload();
+  });
+}
 </script>
 </body>
 </html>
