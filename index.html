@@ -4,7 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Control de Despachos</title>
-<link rel="manifest" id="manifestLink">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/icon-32.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="theme-color" content="#0a2f5c">
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
@@ -525,6 +528,17 @@ function fillEither(n){
   else if(!document.getElementById('inpGuia').value) document.getElementById('inpGuia').value = n;
 }
 
+function obtenerUbicacion(){
+  return new Promise((resolve)=>{
+    if(!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos)=> resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      ()=> resolve(null), // sin permiso, sin GPS, etc. — sigue igual sin ubicación
+      { enableHighAccuracy:true, timeout:6000, maximumAge:60000 }
+    );
+  });
+}
+
 async function registrarEntrega(){
   const nv = document.getElementById('inpNV').value.trim();
   const guia = document.getElementById('inpGuia').value.trim();
@@ -533,6 +547,8 @@ async function registrarEntrega(){
 
   if(!nv || !guia) return toast('N° NV y N° Guía son obligatorios');
   if(!capturedPhotoBase64) return toast('La foto de la guía es obligatoria');
+
+  const ubicacionPromise = obtenerUbicacion(); // se pide en paralelo, no atrasa la subida de la foto
 
   toast('Preparando la foto...');
   let fotoParaSubir = await comprimirFoto(capturedPhotoBase64);
@@ -550,6 +566,7 @@ async function registrarEntrega(){
     fotoResult = { url: masComprimida, local:true };
   }
 
+  const ubicacion = await ubicacionPromise;
   const registro = {
     id: 'e_' + Date.now(),
     transportista: session.nombre,
@@ -557,7 +574,9 @@ async function registrarEntrega(){
     nv, guia, cliente, comentario,
     fecha: new Date().toISOString(),
     fotoUrl: fotoResult.url,
-    fotoLocalSinNube: !!fotoResult.local
+    fotoLocalSinNube: !!fotoResult.local,
+    lat: ubicacion ? ubicacion.lat : null,
+    lng: ubicacion ? ubicacion.lng : null
   };
 
   entregas.push(registro);
@@ -605,6 +624,7 @@ function renderAdmin(){
       <div class="tab ${currentTab==='ranking'?'active':''}" onclick="setTab('ranking')">Ranking</div>
       <div class="tab ${currentTab==='transportistas'?'active':''}" onclick="setTab('transportistas')">Transportistas</div>
       <div class="tab ${currentTab==='importar'?'active':''}" onclick="setTab('importar')">Importar guías</div>
+      <div class="tab ${currentTab==='mapa'?'active':''}" onclick="setTab('mapa')">Mapa</div>
       ${esAdmin ? `<div class="tab ${currentTab==='usuarios'?'active':''}" onclick="setTab('usuarios')">Usuarios</div>` : ''}
       ${esAdmin ? `<div class="tab ${currentTab==='config'?'active':''}" onclick="setTab('config')">Config</div>` : ''}
       <div class="tab" onclick="actualizarDatos()" style="flex:0 0 auto;padding-left:14px;padding-right:14px;">🔄</div>
@@ -616,8 +636,92 @@ function renderAdmin(){
   if(currentTab==='ranking') body.innerHTML = tplRanking();
   if(currentTab==='transportistas') body.innerHTML = tplTransportistas();
   if(currentTab==='importar'){ body.innerHTML = tplImportar(); wireImportar(); }
+  if(currentTab==='mapa'){ body.innerHTML = tplMapa(); wireMapa(); }
   if(currentTab==='usuarios' && esAdmin) body.innerHTML = tplUsuarios();
   if(currentTab==='config' && esAdmin){ body.innerHTML = tplConfig(); wireConfig(); }
+}
+
+function cargarLeaflet(){
+  return new Promise((resolve, reject)=>{
+    if(window.L) return resolve();
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(link);
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    s.onload = ()=>resolve();
+    s.onerror = ()=>reject(new Error('No se pudo descargar el mapa'));
+    document.head.appendChild(s);
+  });
+}
+
+function tplMapa(){
+  return `<div class="card">
+    <h2>🗺️ Mapa de entregas</h2>
+    <p class="muted">Muestra dónde estaba el transportista al momento de registrar cada entrega (según su GPS del celular). Respeta los filtros del Dashboard si los dejaste puestos.</p>
+    <select id="mTransportista" onchange="dibujarMapa()">
+      <option value="">— Todos los transportistas —</option>
+      ${[...new Set(entregas.map(e=>e.transportista).filter(Boolean))].sort().map(t=>`<option value="${t}">${t}</option>`).join('')}
+    </select>
+    <div id="mapaContenedor" style="height:420px;border-radius:10px;margin-top:10px;overflow:hidden;border:1px solid var(--borde);"></div>
+    <div id="mapaStatus" class="ocr-box" style="margin-top:8px;">⏳ Cargando mapa...</div>
+  </div>`;
+}
+
+let mapaLeaflet = null;
+async function wireMapa(){
+  const status = document.getElementById('mapaStatus');
+  try{
+    await cargarLeaflet();
+  }catch(e){
+    status.innerHTML = '⚠️ ' + e.message;
+    return;
+  }
+  dibujarMapa();
+}
+
+function dibujarMapa(){
+  const status = document.getElementById('mapaStatus');
+  const filtroT = document.getElementById('mTransportista') ? document.getElementById('mTransportista').value : '';
+  const conUbicacion = entregas.filter(e=> e.lat!=null && e.lng!=null && (!filtroT || e.transportista===filtroT));
+
+  if(mapaLeaflet){ mapaLeaflet.remove(); mapaLeaflet = null; }
+  const contenedor = document.getElementById('mapaContenedor');
+  if(!contenedor) return;
+
+  if(!conUbicacion.length){
+    status.innerHTML = '⚠️ Ninguna entrega registrada tiene ubicación guardada todavía (se guarda desde ahora en adelante, si el transportista da permiso de ubicación al navegador).';
+    contenedor.innerHTML = '';
+    return;
+  }
+  status.style.display = 'none';
+
+  mapaLeaflet = L.map('mapaContenedor');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap',
+    maxZoom: 19
+  }).addTo(mapaLeaflet);
+
+  const colores = ['#0a2f5c','#c0392b','#1e8449','#8e44ad','#d68910','#16a085','#2980b9','#a04000'];
+  const porTransportista = {};
+  conUbicacion.forEach(e=>{ (porTransportista[e.transportista] = porTransportista[e.transportista] || []).push(e); });
+
+  const todosPuntos = [];
+  Object.keys(porTransportista).forEach((t,i)=>{
+    const color = colores[i % colores.length];
+    const puntos = porTransportista[t].slice().sort((a,b)=> new Date(a.fecha)-new Date(b.fecha));
+    const latlngs = puntos.map(e=>[e.lat, e.lng]);
+    if(latlngs.length>1) L.polyline(latlngs, { color, weight:3, opacity:0.7 }).addTo(mapaLeaflet);
+    puntos.forEach(e=>{
+      L.circleMarker([e.lat, e.lng], { radius:7, color, fillColor:color, fillOpacity:0.9 })
+        .addTo(mapaLeaflet)
+        .bindPopup(`<b>${e.transportista}</b><br>Guía ${e.guia} · NV ${e.nv}<br>${new Date(e.fecha).toLocaleString('es-CL')}`);
+      todosPuntos.push([e.lat, e.lng]);
+    });
+  });
+
+  mapaLeaflet.fitBounds(todosPuntos, { padding:[30,30] });
 }
 
 function tplUsuarios(){
