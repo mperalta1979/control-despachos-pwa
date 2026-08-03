@@ -3,7 +3,7 @@
 // hay que cambiar CACHE_VERSION (ej. v2, v3...) para que a todos los
 // celulares/computadores les llegue la actualización sin que tengan que
 // borrar datos del navegador a mano.
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const CACHE_NAME = `control-despachos-${CACHE_VERSION}`;
 
 const APP_SHELL = [
